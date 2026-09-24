@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 
 test("the skill is where every client looks for it", () => {
   assert.ok(existsSync(join(root, "skills/speck-publish/SKILL.md")));
@@ -33,7 +34,7 @@ function walk(dir, out = []) {
 
 test("nothing in the skill is Claude-only", () => {
   for (const f of walk(root)) {
-    if (!f.includes("/skills/")) continue;
+    if (!relative(root, f).startsWith("skills/")) continue;
     const text = readFileSync(f, "latin1").toLowerCase();
     assert.doesNotMatch(text, /browser pane|claude code only|\bclaude\.md\b/, f);
   }
