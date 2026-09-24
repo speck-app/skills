@@ -109,6 +109,10 @@ are revising. The author has almost certainly edited the words, and those edits 
 `screenshot.png`; they are derived from the interface and rebuilding them is usually why you were
 run. If the author hand-edited the prototype, say so in the summary, because the rebuild loses it.
 
+A re-run on an app that is already published updates its listing and replaces its files in place,
+live, because the API's update and upload calls work on published apps too; "you never publish" is
+about the first publish, not this step, so say in the closing summary that the live app changed.
+
 **Say what you touched.** The closing summary names every field and section you changed and which
 trigger justified it, and says the rest was left alone.
 
@@ -127,34 +131,47 @@ settings URL and exits 2. Tell the person to mint a token under API tokens in th
 and put it in that file, mode 0600. Never write the token anywhere in the repo, never print it, and
 never ask them to paste it into this conversation.
 
+## Script paths
+
+The scripts sit in `scripts/` next to this file. Every command below runs with the app's own repo
+as the working directory, so a path like `.speck/prototype.html` is relative to the app, while the
+script itself is relative to wherever the skill was installed. `<skill>` in a command below stands
+for that install location — the speck-publish skill's own directory, not the app's.
+
 ## Workflow
 
 1. **Read what is there.** If `.speck/` exists, read all of it before writing anything.
    → Re-runs revise, they do not regenerate.
-2. **Check the token**: `node scripts/publish.mjs whoami`. It prints the username the draft will
-   go under, or exits 2 with what to do.
-3. **Identify the app**: its platform, one of the seven `node scripts/publish.mjs lookups` prints
-   (web, mobile, tablet, desktop, browser-extension, cli, bot-or-automation), and its category, one
-   of the nine. The platform sets the prototype's proportions and the prompt's wording.
+2. **Check the token**: `node <skill>/scripts/publish.mjs whoami`. It prints the username the draft
+   will go under, or exits 2 with what to do.
+3. **Identify the app**: its platform and its category, both from the lists
+   `node <skill>/scripts/publish.mjs lookups` prints. The lists change; never carry them in your
+   head. The platform sets the prototype's proportions and the prompt's wording.
 4. **Extract the design language** from the repo. → `references/design-extraction.md`
 5. **Inventory the views and assemble the content.** Reproduce the interface, invent the records.
    → `references/prototype.md`. Anything that might be a real person, amount or contact detail goes
    into the one batched question, now, before you build around it.
-6. **Build the prototype**, then run `node scripts/check.mjs .speck/prototype.html` and fix what it
-   reports. Then open it in whatever browser you have and drive it: every screen by the app's own
-   navigation, the main action, a reload back to the seeded state. The script cannot click; you can.
+6. **Build the prototype**, then run `node <skill>/scripts/check.mjs .speck/prototype.html` and fix
+   what it reports. Then open it in whatever browser you have and drive it: every screen by the
+   app's own navigation, the main action, a reload back to the seeded state. The script cannot
+   click; you can.
 7. **Write or revise the prompt.** → `references/prompt.md`
 8. **Write or revise `entry.json`.** → `references/entry.md`. `platformSlug` has to be right before
-   the next step: the screenshot script frames a mobile, tablet or extension app as a device.
-9. **Shoot**: `node scripts/shoot.mjs .speck/prototype.html .speck/screenshot.png`. Look at the
-   PNG. The interesting part of the first screen must be in the top of it.
-10. **Check the copy** against `references/style.md`: the blurb, the description, the prompt.
-11. **Publish**: `node scripts/publish.mjs publish`. It creates the app or updates it, uploads the
-    files, writes `app.json`, and prints the draft URL. If the person built this from an app on
-    Speck and wants it listed as a remix, add `--remix-of <id> --tool "<what they built with>"`
-    and, if they gave one, `--note "<one line>"`; the script posts their build first, since a remix
-    on Speck is what a build becomes.
-12. **Say what you did.** The draft URL on its own line at the end, with "open it, check the
+   the shoot step: the screenshot script frames a mobile, tablet or extension app as a device.
+9. **Shoot**: `node <skill>/scripts/shoot.mjs .speck/prototype.html .speck/screenshot.png`. Look at
+   the PNG. The interesting part of the first screen must be in the top of it.
+10. **Datacheck**: `node <skill>/scripts/datacheck.mjs .speck`. It scans the finished files for
+    contact-shaped strings, a failure to fix, and lists person names and amounts as questions.
+    Anything it raises that the batched question in step 5 did not already cover is a follow-up
+    question to the author now; asking it here is not a breach of "ask once".
+11. **Check the copy you wrote or revised this run** against `references/style.md`: the blurb, the
+    description, the prompt. Copy carried over verbatim from the author needs no re-check.
+12. **Publish**: `node <skill>/scripts/publish.mjs publish`. It creates the app or updates it,
+    uploads the files, writes `app.json`, and prints the draft URL. If the person built this from an
+    app on Speck and wants it listed as a remix, add `--remix-of <id> --tool "<what they built
+    with>"` and, if they gave one, `--note "<one line>"`; the script posts their build first, since
+    a remix on Speck is what a build becomes.
+13. **Say what you did.** The draft URL on its own line at the end, with "open it, check the
     prototype, press Publish". Above it: what you reproduced and what you invented, and on a re-run
     every piece of copy you changed and which trigger justified it.
 
