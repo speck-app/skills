@@ -80,12 +80,16 @@ try {
   writeFileSync(temp, injectHead(src, HIDE_CHROME));
   if (framed) {
     // The device fills the field's height less a margin; the width follows from its proportions.
+    // will-change:transform gives .device its own compositor layer. Without it, when the scaled
+    // iframe holds a page with layers of its own (an element with will-change or a transform),
+    // Chrome applies the rounded-corner clip to the root surface and leaves the pixels outside the
+    // two right-hand corners transparent: 736 of them on one real prototype, none on the left.
     const ph = OUT.height - 60;
     const scale = ph / framed.height;
     const pw = Math.round(framed.width * scale);
     writeFileSync(frame, `<!doctype html><html><head><meta charset="utf-8"><style>
       html,body{margin:0;width:${OUT.width}px;height:${OUT.height}px;background:${FIELD};overflow:hidden}
-      .device{position:absolute;left:${Math.round((OUT.width - pw) / 2)}px;top:${Math.round((OUT.height - ph) / 2)}px;width:${pw}px;height:${ph}px;border-radius:${Math.round(framed.radius * scale)}px;overflow:hidden;background:#fff}
+      .device{position:absolute;left:${Math.round((OUT.width - pw) / 2)}px;top:${Math.round((OUT.height - ph) / 2)}px;width:${pw}px;height:${ph}px;border-radius:${Math.round(framed.radius * scale)}px;overflow:hidden;background:#fff;will-change:transform}
       iframe{border:0;width:${framed.width}px;height:${framed.height}px;transform:scale(${scale});transform-origin:0 0}
     </style></head><body><div class="device"><iframe src="${fileUrl(temp)}"></iframe></div></body></html>`);
     runChrome(chrome, [`--window-size=${OUT.width},${OUT.height}`, "--force-device-scale-factor=1", "--virtual-time-budget=6000", `--screenshot=${out}`, fileUrl(frame)]);
