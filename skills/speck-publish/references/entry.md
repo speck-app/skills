@@ -24,8 +24,8 @@ the description beside the prototype. Seven keys, all of them the author's copy 
   one or two sentences of it belong in the first paragraph, in their words. Nothing about
   motivation they did not say. No recap of the spec: people will play with the prototype and skim
   the prompt.
-- **`categorySlug`**, **`platformSlug`**: one each from `node scripts/publish.mjs lookups`. The
-  lists change; never carry them in your head.
+- **`categorySlug`**, **`platformSlug`**: one each from `node <skill>/scripts/publish.mjs lookups`.
+  The lists change; never carry them in your head.
 - **`tags`**: up to ten, lowercase. What a visitor would search for: the subject (recipes,
   invoicing) and the app's one idea (pass-and-play, one-line-a-day). Not the platform (the listing
   shows it), not mechanics (keyboard, drag-and-drop, undo), not near-universal properties (offline,
