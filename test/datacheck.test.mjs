@@ -11,7 +11,7 @@ test.before(() => {
   mkdirSync(`${fx}only-clean`, { recursive: true });
   writeFileSync(`${fx}only-clean/p.html`, "<p>by Sam</p><p>Total $12.00</p><p>Delivery today</p>");
   mkdirSync(`${fx}only-contact`, { recursive: true });
-  writeFileSync(`${fx}only-contact/p.md`, "Call 555-123-4567 or write to sam@example.com at 12 Baker Street.");
+  writeFileSync(`${fx}only-contact/p.md`, "Call 555-123-4567 or write to sam@mailbox.org at 12 Baker Street.");
   mkdirSync(`${fx}repo`, { recursive: true });
   writeFileSync(`${fx}repo/users-export.csv`, "id,name\n");
   writeFileSync(`${fx}repo/app.sqlite`, "");
@@ -34,7 +34,7 @@ test("contact details fail", () => {
   const r = run(`${fx}only-contact`, `${fx}repo`);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /must fix/i);
-  assert.match(r.stdout, /sam@example\.com/);
+  assert.match(r.stdout, /sam@mailbox\.org/);
   assert.match(r.stdout, /555-123-4567/);
   assert.match(r.stdout, /Baker Street/);
 });
@@ -68,4 +68,29 @@ test("comma-decimal money (amount before the symbol) is caught too, alongside a 
   assert.match(r.stdout, /ask the author/i);
   assert.match(r.stdout, /12,00 €/);
   assert.match(r.stdout, /£1,200\.00/);
+});
+
+const askLines = (out) => out.split("\n").filter((l) => /^ {4}\S.* in /.test(l)).map((l) => l.trim().split(/\s+in\s+/)[0].trim());
+
+test("seed names in JS keys are questions; tab labels, the app's name and reserved contact shapes are not", () => {
+  const r = run(`${fx}seed`, `${fx}repo`);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const asked = askLines(r.stdout);
+  for (const n of ["Amara", "Tobi Olonoh", "Zainab"]) assert.ok(asked.includes(n), `${n} missing from ${JSON.stringify(asked)}`);
+  for (const n of ["Inbox", "Weekly", "Assign", "Marlow", "Rota", "Everyone", "May", "Bins"]) assert.ok(!asked.includes(n), `${n} should not be asked about`);
+  assert.doesNotMatch(r.stdout, /must fix/i);
+  assert.doesNotMatch(r.stdout, /logo@2x|sam@example\.com|555-0142|555 0142/);
+});
+
+test("an international number outside the reserved block is a failure", () => {
+  const r = run(`${fx}intl`, `${fx}repo`);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /must fix/i);
+  assert.match(r.stdout, /\+44 20 7946 0958/);
+});
+
+test("production files are matched by data-file shape, not by a source file named for the feature", () => {
+  const r = run(`${fx}only-clean`, `${fx}prodrepo`);
+  for (const p of ["dump.sql", "backup/notes.txt", "prod-users.json", "data.db"]) assert.match(r.stdout, new RegExp(`^ {4}${p.replace(/[.]/g, "\\.")}$`, "m"), p);
+  for (const p of ["src/export.ts", "components/Export.tsx", "lib/snapshot.js"]) assert.doesNotMatch(r.stdout, new RegExp(p.replace(/[.]/g, "\\.")), p);
 });
