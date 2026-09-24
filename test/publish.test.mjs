@@ -2,34 +2,49 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const script = new URL("../skills/speck-publish/scripts/publish.mjs", import.meta.url).pathname;
-const tmp = new URL("./tmp/publish/", import.meta.url).pathname;
+// A real OS temp dir, not test/tmp/: layout.test.mjs walks the whole repo tree concurrently, and
+// shoot.test.mjs's own test.before() does rmSync(recursive) on test/tmp/ itself (its tmp *is*
+// that directory, one level up from ours) -- either one can delete a path out from under the
+// other's walk mid-run (ENOENT). mkdtempSync gives every run a directory nothing else on the
+// filesystem has a claim on, and nothing here ever deletes a path once created, only adds to it.
+const tmp = mkdtempSync(join(tmpdir(), "speck-publish-test-")) + "/";
 
-// A Speck that answers the way the API does, and remembers every request.
+// A Speck that answers the way the API does, and remembers every request. /lookups takes no
+// token; app.files reflects only what's actually been PUT so far, not a fixed fixture.
 function stub(behaviour = {}) {
   const seen = [];
+  const uploaded = new Set();
   const server = createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const body = Buffer.concat(chunks);
     seen.push({ method: req.method, url: req.url, auth: req.headers.authorization, type: req.headers["content-type"], body });
-    const send = (status, json) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(json)); };
-    const app = { publicId: "abcd2345", status: "draft", url: "https://speck.test/a/abcd2345", editUrl: "https://speck.test/apps/x/edit", files: { prototype: true, prompt: true, screenshot: true } };
-    if (req.headers.authorization !== "Bearer spk_good") return send(401, { ok: false, error: "Send a token as Authorization: Bearer spk_... (mint one at /settings)." });
+    const send = (status, json, extra = {}) => { res.writeHead(status, { "content-type": "application/json", ...extra }); res.end(JSON.stringify(json)); };
+    const files = () => ({ prototype: uploaded.has("prototype"), prompt: uploaded.has("prompt"), screenshot: uploaded.has("screenshot") });
+    const app = () => ({ publicId: "abcd2345", status: behaviour.published ? "published" : "draft", url: "https://speck.test/a/abcd2345", editUrl: "https://speck.test/apps/x/edit", files: files() });
     if (req.url === "/api/v1/lookups") return send(200, { ok: true, categories: [{ slug: "games", label: "Games" }], platforms: [{ slug: "web", label: "Web" }, { slug: "mobile", label: "Mobile" }] });
-    if (req.url === "/api/v1/me") return send(200, { ok: true, username: "maria", displayName: "Maria", url: "https://speck.test/@maria" });
+    if (req.headers.authorization !== "Bearer spk_good") return send(401, { ok: false, error: "Send a token as Authorization: Bearer spk_... (mint one at /settings)." });
+    if (req.url === "/api/v1/me") {
+      if (behaviour.rateLimited) return send(429, { ok: false, error: "Slow down." }, { "retry-after": "17" });
+      return send(200, { ok: true, username: "maria", displayName: "Maria", url: "https://speck.test/@maria" });
+    }
     if (req.method === "POST" && req.url === "/api/v1/apps") {
       const b = JSON.parse(body.toString());
       if (b.remixOf && !behaviour.built) return send(409, { ok: false, error: "Build it first.", code: "build-first" });
       if (b.name === "") return send(422, { ok: false, error: "Give it a name.", field: "name" });
-      return send(201, { ok: true, app: { ...app, remixOf: b.remixOf ?? null } });
+      return send(201, { ok: true, app: { ...app(), remixOf: b.remixOf ?? null } });
     }
     if (req.method === "POST" && req.url === "/api/v1/apps/src12345/builds") { behaviour.built = true; return send(201, { ok: true, build: { appUrl: "https://speck.test/a/src12345", postedAt: "now", first: true } }); }
-    if (req.method === "PATCH" && req.url === "/api/v1/apps/abcd2345") return send(behaviour.gone ? 404 : 200, behaviour.gone ? { ok: false, error: "No app with that id." } : { ok: true, app });
-    if (req.method === "PUT" && req.url.startsWith("/api/v1/apps/abcd2345/files/")) return send(200, { ok: true, app });
+    if (req.method === "PATCH" && req.url === "/api/v1/apps/abcd2345") return send(behaviour.gone ? 404 : 200, behaviour.gone ? { ok: false, error: "No app with that id." } : { ok: true, app: app() });
+    if (req.method === "PUT" && req.url.startsWith("/api/v1/apps/abcd2345/files/")) {
+      uploaded.add(req.url.split("/").pop());
+      return send(200, { ok: true, app: app() });
+    }
     send(404, { ok: false, error: "No app with that id." });
   });
   return new Promise((r) => server.listen(0, "127.0.0.1", () => r({ server, seen, url: `http://127.0.0.1:${server.address().port}` })));
@@ -57,7 +72,7 @@ function run(dir, url, args, env = {}) {
   });
 }
 
-test.before(() => { rmSync(tmp, { recursive: true, force: true }); mkdirSync(tmp, { recursive: true }); });
+// tmp is already a fresh, empty directory from mkdtempSync above; nothing to clean first.
 
 test("whoami prints the username, and without a token prints the settings URL and exits 2", async (t) => {
   const { server, url } = await stub(); t.after(() => server.close());
@@ -167,4 +182,93 @@ test("never prints the token, even on a 401", async (t) => {
   const r = await run(dir, url, ["whoami"], { SPECK_TOKEN: "spk_wrongwrongwrong" });
   assert.equal(r.status, 1);
   assert.doesNotMatch(r.stdout + r.stderr, /spk_wrong/);
+});
+
+test("a token holding a line break is refused, not sent, and never printed", async (t) => {
+  const { server, url } = await stub(); t.after(() => server.close());
+  const dir = join(tmp, "token-newline"); mkdirSync(dir, { recursive: true });
+  const r = await run(dir, url, ["whoami"], { SPECK_TOKEN: "spk_aaaaaaaa\nspk_bbbbbbbb" });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /SPECK_TOKEN/);
+  assert.doesNotMatch(r.stdout + r.stderr, /spk_aaaaaaaa/);
+  assert.doesNotMatch(r.stdout + r.stderr, /spk_bbbbbbbb/);
+});
+
+test("a network failure names the OS reason, not a wrapped message, and never the token", async (t) => {
+  // Grab a free port, then close it before the run so nothing is listening there.
+  const probe = createServer();
+  const closedUrl = await new Promise((resolve) => probe.listen(0, "127.0.0.1", () => {
+    const p = probe.address().port;
+    probe.close(() => resolve(`http://127.0.0.1:${p}`));
+  }));
+  const dir = join(tmp, "econnrefused"); mkdirSync(dir, { recursive: true });
+  const r = await run(dir, closedUrl, ["whoami"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /ECONNREFUSED/);
+  assert.doesNotMatch(r.stdout + r.stderr, /spk_good/);
+});
+
+test("a 429 carries the retry-after suffix", async (t) => {
+  const { server, url } = await stub({ rateLimited: true }); t.after(() => server.close());
+  const dir = join(tmp, "429"); mkdirSync(dir, { recursive: true });
+  const r = await run(dir, url, ["whoami"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Retry after 17 seconds\./);
+});
+
+test("lookups needs no token at all", async (t) => {
+  const { server, url } = await stub(); t.after(() => server.close());
+  const dir = join(tmp, "lookups-no-token"); mkdirSync(dir, { recursive: true });
+  const r = await run(dir, url, ["lookups"], { SPECK_TOKEN: "" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /games/);
+});
+
+test("--remix-of with no value falls into the usage path instead of swallowing --tool", async (t) => {
+  const { server, seen, url } = await stub(); t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "remix-swallow"));
+  const r = await run(dir, url, ["publish", "--remix-of", "--tool", "Codex"]);
+  assert.equal(r.status, 2);
+  assert.equal(seen.length, 0);
+});
+
+test("--remix-of on a re-run is reported and ignored, and the update still goes through", async (t) => {
+  const { server, seen, url } = await stub(); t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "remix-on-update"));
+  writeFileSync(join(dir, ".speck/app.json"), JSON.stringify({ publicId: "abcd2345", url: "https://speck.test/a/abcd2345" }));
+  const r = await run(dir, url, ["publish", "--remix-of", "src12345", "--tool", "Codex"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /already names an app.*--remix-of/s);
+  assert.equal(seen[2].method, "PATCH");
+});
+
+test("a published app gets the live-app message, not the press-Publish one", async (t) => {
+  const { server, url } = await stub({ published: true }); t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "published"));
+  writeFileSync(join(dir, ".speck/app.json"), JSON.stringify({ publicId: "abcd2345", url: "https://speck.test/a/abcd2345" }));
+  const r = await run(dir, url, ["publish"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Live app updated\. Open it to check:/);
+  assert.doesNotMatch(r.stdout, /Draft/);
+  assert.doesNotMatch(r.stdout, /press Publish/);
+});
+
+test("an entry.json holding publicId is refused, naming app.json", async (t) => {
+  const { server, url } = await stub(); t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "extra-publicid"), { publicId: "abcd2345" });
+  const r = await run(dir, url, ["publish"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /app\.json/);
+});
+
+test("only prompt.md present sends one PUT and names the two files still missing", async (t) => {
+  const { server, seen, url } = await stub(); t.after(() => server.close());
+  const dir = join(tmp, "partial"); mkdirSync(join(dir, ".speck"), { recursive: true });
+  writeFileSync(join(dir, ".speck/entry.json"), JSON.stringify({ name: "Tally", blurb: "b", description: "d", categorySlug: "games", platformSlug: "web", tags: ["x"], testedWith: null }));
+  writeFileSync(join(dir, ".speck/prompt.md"), "Build me a thing.\n");
+  const r = await run(dir, url, ["publish"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(seen.filter((s) => s.method === "PUT").length, 1);
+  assert.equal(seen.filter((s) => s.method === "PUT")[0].url, "/api/v1/apps/abcd2345/files/prompt");
+  assert.match(r.stdout, /still missing on Speck: prototype\.html, screenshot\.png/);
 });

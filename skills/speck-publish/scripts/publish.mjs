@@ -28,7 +28,14 @@ const ENTRY_KEYS = ["name", "blurb", "description", "categorySlug", "platformSlu
 
 const args = process.argv.slice(2);
 const cmd = args[0];
-const flag = (name) => { const i = args.indexOf(name); return i === -1 ? undefined : args[i + 1]; };
+// A flag's value is the next argument, unless that argument is itself another flag -- then the
+// first flag was given no value, and callers must treat it as missing rather than swallow "--tool".
+const flag = (name) => {
+  const i = args.indexOf(name);
+  if (i === -1) return undefined;
+  const v = args[i + 1];
+  return v !== undefined && !v.startsWith("--") ? v : undefined;
+};
 const has = (name) => args.includes(name);
 
 function usage(code = 2) {
@@ -37,20 +44,33 @@ function usage(code = 2) {
 }
 function die(msg, code = 1) { console.error(msg); process.exit(code); }
 
+// spk_... tokens are a single run of printable ASCII; a rotation can leave a file with two lines
+// (old token, new token) and we must refuse that rather than send a header undici will reject and
+// then quote back in the error.
+const TOKEN_SHAPE = /^[\x21-\x7e]+$/;
+
 function token() {
   const env = (process.env.SPECK_TOKEN || "").trim();
-  if (env) return env;
+  if (env) {
+    if (!TOKEN_SHAPE.test(env)) die(`SPECK_TOKEN isn't a single token (no spaces or line breaks). Copy just the token from ${SETTINGS}.`, 2);
+    return env;
+  }
   if (existsSync(TOKEN_FILE)) {
     const t = readFileSync(TOKEN_FILE, "utf8").trim();
-    if (t) return t;
+    if (t) {
+      if (!TOKEN_SHAPE.test(t)) die(`${TOKEN_FILE} isn't a single token (no spaces or line breaks). Copy just the token from ${SETTINGS}.`, 2);
+      return t;
+    }
   }
   die(`No token. Mint one at ${SETTINGS} and put it in SPECK_TOKEN or in ${TOKEN_FILE} (mode 0600).`, 2);
 }
 
 // One call. Answers { status, body } and never throws on a 4xx; a network failure is the one
-// thing that exits here, since nothing after it can proceed.
-async function call(method, path, { json, raw, type } = {}) {
-  const headers = { authorization: `Bearer ${token()}` };
+// thing that exits here, since nothing after it can proceed. auth: false skips the header, for
+// the one endpoint (/lookups) that doesn't need a token.
+async function call(method, path, { json, raw, type, auth = true } = {}) {
+  const headers = {};
+  if (auth) headers.authorization = `Bearer ${token()}`;
   let body;
   if (json !== undefined) { headers["content-type"] = "application/json"; body = JSON.stringify(json); }
   if (raw !== undefined) { headers["content-type"] = type; body = raw; }
@@ -58,7 +78,7 @@ async function call(method, path, { json, raw, type } = {}) {
   try {
     res = await fetch(`${BASE}/api/v1${path}`, { method, headers, body });
   } catch (e) {
-    die(`Couldn't reach ${BASE}: ${e.message}`, 1);
+    die(`Couldn't reach ${BASE}: ${e.cause?.code ?? e.message}.`, 1);
   }
   let parsed = null;
   try { parsed = await res.json(); } catch { parsed = { ok: false, error: `${res.status} from ${path} with no JSON body.` }; }
@@ -68,12 +88,12 @@ async function call(method, path, { json, raw, type } = {}) {
 function refused(r, what) {
   const b = r.body || {};
   const field = b.field ? `${b.field}: ` : "";
-  const retry = r.status === 429 && r.retryAfter ? ` Retry after ${r.retryAfter} seconds.` : "";
-  die(`${what}: ${field}${b.error || `HTTP ${r.status}`}${retry}`, r.status === 401 || r.status === 503 ? 1 : 1);
+  const retry = r.retryAfter ? ` Retry after ${r.retryAfter} seconds.` : "";
+  die(`${what}: ${field}${b.error || `HTTP ${r.status}`}${retry}`, 1);
 }
 
 async function lookups() {
-  const r = await call("GET", "/lookups");
+  const r = await call("GET", "/lookups", { auth: false });
   if (!r.body?.ok) refused(r, "lookups");
   return r.body;
 }
@@ -109,6 +129,7 @@ async function cmdPublish() {
   const entryPath = join(dir, "entry.json");
   if (!existsSync(entryPath)) die(`No ${entryPath}. Write the listing first (references/entry.md).`, 2);
   const remixOf = flag("--remix-of");
+  if (has("--remix-of") && !remixOf) usage();
   const tool = flag("--tool");
   if (remixOf && !tool) die("--remix-of needs --tool: what the person built it with.", 2);
 
@@ -134,6 +155,7 @@ async function cmdPublish() {
   const fields = Object.fromEntries(ENTRY_KEYS.map((k) => [k, entry[k]]));
   let app;
   if (existing?.publicId) {
+    if (remixOf) console.error(`${appPath} already names an app; --remix-of and --tool do nothing on an update.`);
     const r = await call("PATCH", `/apps/${existing.publicId}`, { json: fields });
     if (r.status === 404) die(`${appPath} names ${existing.publicId}, which is no longer on Speck. Run again with --new to create it afresh, or fix app.json.`, 1);
     if (!r.body?.ok) refused(r, "update");
@@ -157,7 +179,11 @@ async function cmdPublish() {
   }
   const absent = FILES.filter((f) => !app.files[f.kind]).map((f) => f.name);
   if (absent.length) console.log(`still missing on Speck: ${absent.join(", ")}`);
-  console.log(`\nDraft ${existing ? "updated" : "created"} as @${me.body.username}. Open it, check the prototype, and press Publish:\n${app.url}`);
+  if (app.status === "published") {
+    console.log(`\nLive app updated. Open it to check:\n${app.url}`);
+  } else {
+    console.log(`\nDraft ${existing ? "updated" : "created"} as @${me.body.username}. Open it, check the prototype, and press Publish:\n${app.url}`);
+  }
 }
 
 if (has("-h") || has("--help")) usage(0);
