@@ -14,10 +14,12 @@
 // inside a frame page: a dark grey field, rounded corners, scaled to the field's height. That is how
 // the site frames it, without drawing a bezel, and it needs no image library: the frame is HTML.
 //
-// Anything marked data-proto-chrome is hidden for the shot.
-import { readFileSync, writeFileSync, rmSync, existsSync, mkdirSync, statSync } from "node:fs";
+// Anything marked data-proto-chrome is hidden for the shot. Temp files go in the system temp
+// directory and are removed afterwards.
+import { readFileSync, writeFileSync, rmSync, existsSync, mkdirSync, mkdtempSync, statSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
-import { findChrome, noChrome, runChrome, HIDE_CHROME, injectHead } from "./browser.mjs";
+import { tmpdir } from "node:os";
+import { findChrome, noChrome, runChrome, ChromeError, fileUrl, HIDE_CHROME, injectHead } from "./browser.mjs";
 
 const OUT = { width: 1600, height: 1000 };
 const DEFAULT_WIDTH = 1120;
@@ -32,10 +34,9 @@ const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i === -1 ? undefined : args[i + 1]; };
 const positional = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
 const [input, output] = positional;
-if (!input || !output || args.includes("-h") || args.includes("--help")) {
-  console.error("usage: node shoot.mjs <prototype.html> <out.png> [--w N] [--entry entry.json]");
-  process.exit(2);
-}
+const USAGE = "usage: node shoot.mjs <prototype.html> <out.png> [--w N] [--entry entry.json]";
+if (args.includes("-h") || args.includes("--help")) { console.log(USAGE); process.exit(0); }
+if (!input || !output) { console.error(USAGE); process.exit(2); }
 const file = resolve(input);
 const out = resolve(output);
 if (!existsSync(file)) { console.error(`no such file: ${file}`); process.exit(2); }
@@ -49,6 +50,8 @@ if (existsSync(entryPath)) {
     console.error(`${entryPath} is not JSON: ${e.message}`);
     process.exit(2);
   }
+} else if (!flag("--entry")) {
+  console.log("No entry.json beside the prototype and no --entry, so shooting it as a 16:10 panel.");
 }
 const framed = FRAMED[platform];
 
@@ -68,11 +71,13 @@ const chrome = findChrome();
 if (!chrome) noChrome();
 mkdirSync(dirname(out), { recursive: true });
 
-const temp = join(dirname(file), `.shoot-${process.pid}.html`);
-const frame = join(dirname(file), `.frame-${process.pid}.html`);
-writeFileSync(temp, injectHead(src, HIDE_CHROME));
+const work = mkdtempSync(join(tmpdir(), "speck-shoot-"));
+const temp = join(work, "prototype.html");
+const frame = join(work, "frame.html");
 
+let failed;
 try {
+  writeFileSync(temp, injectHead(src, HIDE_CHROME));
   if (framed) {
     // The device fills the field's height less a margin; the width follows from its proportions.
     const ph = OUT.height - 60;
@@ -82,18 +87,21 @@ try {
       html,body{margin:0;width:${OUT.width}px;height:${OUT.height}px;background:${FIELD};overflow:hidden}
       .device{position:absolute;left:${Math.round((OUT.width - pw) / 2)}px;top:${Math.round((OUT.height - ph) / 2)}px;width:${pw}px;height:${ph}px;border-radius:${Math.round(framed.radius * scale)}px;overflow:hidden;background:#fff}
       iframe{border:0;width:${framed.width}px;height:${framed.height}px;transform:scale(${scale});transform-origin:0 0}
-    </style></head><body><div class="device"><iframe src="file://${temp}"></iframe></div></body></html>`);
-    runChrome(chrome, [`--window-size=${OUT.width},${OUT.height}`, "--force-device-scale-factor=1", "--virtual-time-budget=6000", `--screenshot=${out}`, `file://${frame}`]);
+    </style></head><body><div class="device"><iframe src="${fileUrl(temp)}"></iframe></div></body></html>`);
+    runChrome(chrome, [`--window-size=${OUT.width},${OUT.height}`, "--force-device-scale-factor=1", "--virtual-time-budget=6000", `--screenshot=${out}`, fileUrl(frame)]);
     console.log(`${framed.width}x${framed.height} device on a ${OUT.width}x${OUT.height} field -> ${out}`);
   } else {
     const height = Math.round((width * OUT.height) / OUT.width);
-    runChrome(chrome, [`--window-size=${width},${height}`, `--force-device-scale-factor=${OUT.width / width}`, "--virtual-time-budget=6000", `--screenshot=${out}`, `file://${temp}`]);
+    runChrome(chrome, [`--window-size=${width},${height}`, `--force-device-scale-factor=${OUT.width / width}`, "--virtual-time-budget=6000", `--screenshot=${out}`, fileUrl(temp)]);
     console.log(`${width}x${height} window -> ${out} ${OUT.width}x${OUT.height}`);
   }
+} catch (e) {
+  if (!(e instanceof ChromeError)) throw e;
+  failed = e;
 } finally {
-  rmSync(temp, { force: true });
-  rmSync(frame, { force: true });
+  rmSync(work, { recursive: true, force: true });
 }
 
+if (failed) { console.error(failed.message); process.exit(1); }
 if (!existsSync(out)) { console.error("Chrome ran but wrote no file."); process.exit(1); }
 console.log(`${Math.round(statSync(out).size / 1024)} KB. Open it: the interesting part of the first screen should be at the top.`);

@@ -6,7 +6,8 @@
 //   node publish.mjs build <publicId> --tool "<text>" [--note "<text>"]
 //   node publish.mjs publish [--dir .speck] [--remix-of <publicId> --tool "<text>" [--note "<text>"]] [--new]
 //
-// Reads SPECK_TOKEN, then ~/.config/speck/token. SPECK_URL points it at another Speck (a local one).
+// Reads SPECK_TOKEN, then ~/.config/speck/token. SPECK_URL points it at another Speck (a local one);
+// plain http is refused unless the host is this machine, since the token would travel in the clear.
 // It creates the app or, when .speck/app.json exists, updates it; uploads the three files one call
 // each; writes app.json; prints the draft URL. It never publishes, and it never prints the token.
 //
@@ -39,7 +40,8 @@ const flag = (name) => {
 const has = (name) => args.includes(name);
 
 function usage(code = 2) {
-  console.error("usage: node publish.mjs lookups | whoami | build <publicId> --tool T [--note N] | publish [--dir .speck] [--remix-of ID --tool T [--note N]] [--new]");
+  const text = "usage: node publish.mjs lookups | whoami | build <publicId> --tool T [--note N] | publish [--dir .speck] [--remix-of ID --tool T [--note N]] [--new]";
+  code === 0 ? console.log(text) : console.error(text);
   process.exit(code);
 }
 function die(msg, code = 1) { console.error(msg); process.exit(code); }
@@ -149,6 +151,11 @@ async function cmdPublish() {
   if (extra.length) die(`${entryPath} has keys the listing does not take: ${extra.join(", ")}. (The public id lives in app.json, which the script writes.)`, 2);
   const present = FILES.filter((f) => existsSync(join(dir, f.name)));
   if (!present.length) die(`Nothing to upload: none of ${FILES.map((f) => f.name).join(", ")} is in ${dir}.`, 2);
+  const appPath = join(dir, "app.json");
+  let existing = null;
+  if (!has("--new") && existsSync(appPath)) {
+    try { existing = JSON.parse(readFileSync(appPath, "utf8")); } catch (e) { die(`${appPath} is not JSON (${e.message}). Fix it, or run again with --new to create the app afresh.`, 2); }
+  }
 
   // Validate against the live lists before sending anything; they change.
   const l = await lookups();
@@ -158,8 +165,6 @@ async function cmdPublish() {
   const me = await call("GET", "/me");
   if (!me.body?.ok) refused(me, "whoami");
 
-  const appPath = join(dir, "app.json");
-  const existing = !has("--new") && existsSync(appPath) ? JSON.parse(readFileSync(appPath, "utf8")) : null;
   const fields = Object.fromEntries(ENTRY_KEYS.map((k) => [k, entry[k]]));
   let app;
   if (existing?.publicId) {
@@ -195,6 +200,15 @@ async function cmdPublish() {
 }
 
 if (has("-h") || has("--help")) usage(0);
+// The token goes in a header on every call but /lookups, so it never leaves over plain http to
+// another machine.
+{
+  let u;
+  try { u = new URL(BASE); } catch { die(`SPECK_URL is not a URL: ${BASE}`, 2); }
+  if (u.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)) {
+    die(`SPECK_URL is plain http to ${u.host}, and the token would travel in the clear. Use https, or http only for localhost.`, 2);
+  }
+}
 const commands = { lookups: cmdLookups, whoami: cmdWhoami, build: cmdBuild, publish: cmdPublish };
 if (!commands[cmd]) usage();
 commands[cmd]().catch((e) => die(e.message || String(e), 1));

@@ -94,3 +94,9 @@ test("production files are matched by data-file shape, not by a source file name
   for (const p of ["dump.sql", "backup/notes.txt", "prod-users.json", "data.db"]) assert.match(r.stdout, new RegExp(`^ {4}${p.replace(/[.]/g, "\\.")}$`, "m"), p);
   for (const p of ["src/export.ts", "components/Export.tsx", "lib/snapshot.js"]) assert.doesNotMatch(r.stdout, new RegExp(p.replace(/[.]/g, "\\.")), p);
 });
+
+test("-h prints usage and exits 0, before the directory check", () => {
+  const r = run("-h");
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /usage: node datacheck\.mjs/);
+});

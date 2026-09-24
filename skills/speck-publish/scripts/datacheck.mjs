@@ -59,8 +59,11 @@ function isDir(p) {
   try { return statSync(p).isDirectory(); } catch { return false; }
 }
 
-const [dirArg, repoArg] = process.argv.slice(2);
-if (!dirArg) { console.error("usage: node datacheck.mjs <artifact-dir> [repo-root]"); process.exit(2); }
+const USAGE = "usage: node datacheck.mjs <artifact-dir> [repo-root]";
+const argv = process.argv.slice(2);
+if (argv.includes("-h") || argv.includes("--help")) { console.log(USAGE); process.exit(0); }
+const [dirArg, repoArg] = argv;
+if (!dirArg) { console.error(USAGE); process.exit(2); }
 const dir = dirArg;
 if (!isDir(dir)) { console.error(`no such directory: ${dir}`); process.exit(2); }
 let repo = repoArg;

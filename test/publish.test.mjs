@@ -286,3 +286,33 @@ test("only prompt.md present sends one PUT and names the two files still missing
   assert.equal(seen.filter((s) => s.method === "PUT")[0].url, "/api/v1/apps/abcd2345/files/prompt");
   assert.match(r.stdout, /still missing on Speck: prototype\.html, screenshot\.png/);
 });
+
+test("-h prints usage and exits 0", async () => {
+  const dir = join(tmp, "help"); mkdirSync(dir, { recursive: true });
+  const r = await run(dir, "https://speck.test", ["-h"]);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /usage: node publish\.mjs/);
+});
+
+test("plain http to another host is refused before anything is sent; localhost is fine", async (t) => {
+  const { server, seen, url } = await stub(); t.after(() => server.close());
+  const dir = join(tmp, "plain-http"); mkdirSync(dir, { recursive: true });
+  const r = await run(dir, "http://speck.example.com", ["whoami"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /plain http to speck\.example\.com.*in the clear/);
+  assert.doesNotMatch(r.stdout + r.stderr, /spk_good/);
+  const local = await run(dir, url.replace("127.0.0.1", "localhost"), ["whoami"]);
+  assert.equal(local.status, 0, local.stderr);
+  assert.equal(seen.length, 1);
+});
+
+test("a malformed app.json is a sentence naming the file, exit 2, and nothing is sent", async (t) => {
+  const { server, seen, url } = await stub(); t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "bad-app-json"));
+  writeFileSync(join(dir, ".speck/app.json"), "{ publicId: abcd2345");
+  const r = await run(dir, url, ["publish"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /app\.json is not JSON.*--new/s);
+  assert.doesNotMatch(r.stderr, /\n\s+at /);
+  assert.equal(seen.length, 0);
+});

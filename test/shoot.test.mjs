@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync, rmSync, readdirSync } from "node:fs";
 import { findChrome } from "../skills/speck-publish/scripts/browser.mjs";
 
 const script = new URL("../skills/speck-publish/scripts/shoot.mjs", import.meta.url).pathname;
@@ -24,6 +24,9 @@ test("shoots a 16:10 app at 1600x1000", { skip: !chrome && "no Chrome on this ma
   const r = run(fixture("clean.html"), out);
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(size(out), [1600, 1000]);
+  // No entry.json beside clean.html and no --entry: it says so, once.
+  assert.match(r.stdout, /No entry\.json beside the prototype.*16:10 panel/);
+  assert.deepEqual(readdirSync(fixture("")).filter((n) => /^\.(shoot|frame)-/.test(n)), []);
 });
 
 test("frames a mobile app as a device, reading the platform from entry.json, and hides the persona bar", { skip: !chrome && "no Chrome on this machine" }, () => {
@@ -32,6 +35,7 @@ test("frames a mobile app as a device, reading the platform from entry.json, and
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(size(out), [1600, 1000]);
   assert.match(r.stdout, /390x844 device/);
+  assert.doesNotMatch(r.stdout, /No entry\.json/);
 });
 
 test("honours speck:shot-width for a narrower window", { skip: !chrome && "no Chrome on this machine" }, () => {
@@ -59,4 +63,10 @@ test("errors on a bad entry.json instead of throwing", () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /entry\.json is not JSON/);
   assert.doesNotMatch(r.stderr, /\n\s+at /);
+});
+
+test("-h prints usage and exits 0", () => {
+  const r = run("--help");
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /usage: node shoot\.mjs/);
 });
