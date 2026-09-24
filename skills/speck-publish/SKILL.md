@@ -217,6 +217,8 @@ for that install location, the speck-publish skill's own directory, not the app'
 - **Writing an implementation plan as the prompt.** The prompt describes behaviour and rules, not
   the repo's files, frameworks or schema DDL.
 - **A prompt that introduces the prototype.** The site does that when someone builds. Do not.
+- **Hard-wrapping the prompt.** One paragraph per line, one bullet per line. The site shows it in
+  a column narrower than eighty characters, and a wrapped file wraps twice.
 - **Skipping the drive.** A prototype that throws on click ships broken under the author's name.
 - **Regenerating copy the author edited.** Read first, revise narrowly, say what changed.
 - **Putting the token anywhere but the two places it lives.**

@@ -15,6 +15,39 @@ test.before(() => {
   mkdirSync(`${fx}repo`, { recursive: true });
   writeFileSync(`${fx}repo/users-export.csv`, "id,name\n");
   writeFileSync(`${fx}repo/app.sqlite`, "");
+  mkdirSync(`${fx}wrapped`, { recursive: true });
+  writeFileSync(`${fx}wrapped/prompt.md`, [
+    "Build me a habit tracker as a native mobile app, and make the whole of it one",
+    "screen of round buttons. One button per habit, an emoji I chose inside the circle",
+    "and the habit's name under it.",
+    "",
+    "## Rules that matter",
+    "",
+    "- Storage is one local file in the app's own data directory. SQLite is the",
+    "  obvious choice; use the platform's standard local store if it has one.",
+    "- A habit with no name is the one thing Save refuses.",
+    "",
+    "```",
+    "a fenced block whose lines are as long as they like and are never a paragraph",
+    "continued on the next line",
+    "```",
+    "",
+  ].join("\n"));
+  mkdirSync(`${fx}unwrapped`, { recursive: true });
+  writeFileSync(`${fx}unwrapped/prompt.md`, [
+    "Build me a habit tracker as a native mobile app, and make the whole of it one screen of round buttons. One button per habit, an emoji I chose inside the circle and the habit's name under it.",
+    "",
+    "## Rules that matter",
+    "",
+    "- Storage is one local file in the app's own data directory. SQLite is the obvious choice; use the platform's standard local store if it has one.",
+    "- A habit with no name is the one thing Save refuses.",
+    "",
+    "| column | what |",
+    "| --- | --- |",
+    "| a long enough table row to pass sixty characters if it were prose, which it is not | x |",
+    "| second row | y |",
+    "",
+  ].join("\n"));
   mkdirSync(`${fx}money`, { recursive: true });
   writeFileSync(`${fx}money/p.txt`, "Price: 12,00 €\nAlready listed at £1,200.00 too.\n");
 });
@@ -99,4 +132,18 @@ test("-h prints usage and exits 0, before the directory check", () => {
   const r = run("-h");
   assert.equal(r.status, 0);
   assert.match(r.stdout, /usage: node datacheck\.mjs/);
+});
+
+// #125 on the Speck tracker: the site shows the prompt narrower than eighty characters.
+test("a hard-wrapped prompt.md fails, naming the lines; a fenced block does not count", () => {
+  const r = run(`${fx}wrapped`, `${fx}repo`);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /MUST FIX\. prompt\.md has hard-wrapped paragraphs, broken after lines 1, 2, 7\./);
+  assert.match(r.stdout, /One paragraph per line/);
+});
+
+test("one paragraph per line passes, and table rows and bullets are not paragraphs", () => {
+  const r = run(`${fx}unwrapped`, `${fx}repo`);
+  assert.equal(r.status, 0, r.stdout);
+  assert.doesNotMatch(r.stdout, /hard-wrapped/);
 });

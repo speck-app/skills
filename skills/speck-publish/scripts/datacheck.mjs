@@ -12,7 +12,7 @@
 //
 // It does not care about labels, microcopy or screen structure: those are the interface and they
 // belong in the prototype. A prompt for judgment, not a gate.
-import { readdirSync, readFileSync, statSync, lstatSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, lstatSync, existsSync } from "node:fs";
 import { join, relative, extname } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -119,12 +119,37 @@ for (const f of walk(dir)) {
 }
 const prod = repoExists ? tracked(repo).filter((p) => PROD.test(p)) : [];
 
+// A prompt with hard-wrapped paragraphs (#125 on the Speck tracker): the site shows the prompt in a
+// column narrower than eighty characters, so a file wrapped at eighty wraps a second time there.
+// Outside a fenced block, a line of sixty characters or more followed straight away by a line that
+// does not start a heading, bullet, quote, table row or fence is one paragraph broken over two.
+const BLOCK_START = /^(#{1,6} |[-*+] |\d+\. |>|\||```)/;
+function wrappedAt(text) {
+  const lines = text.split("\n");
+  const hits = [];
+  let fence = false;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (lines[i].startsWith("```")) { fence = !fence; continue; }
+    if (fence) continue;
+    const next = lines[i + 1];
+    if (lines[i].length >= 60 && next.trim() && !BLOCK_START.test(next) && !next.startsWith("```")) hits.push(i + 1);
+  }
+  return hits;
+}
+const promptPath = join(dir, "prompt.md");
+const wrapped = existsSync(promptPath) ? wrappedAt(readFileSync(promptPath, "utf8")) : [];
+
 console.log(`artifacts : ${dir}\nrepo      : ${repo}\n`);
 if (!repoExists) console.log(`repo root does not exist, skipping the production-file scan: ${repo}\n`);
 if (prod.length) {
   console.log("production-looking files in this repo. Schema is fine to read; rows are not:");
   for (const p of prod.slice(0, 20)) console.log(`    ${p}`);
   console.log();
+}
+if (wrapped.length) {
+  const shown = wrapped.slice(0, 8).join(", ") + (wrapped.length > 8 ? ` and ${wrapped.length - 8} more` : "");
+  console.log(`MUST FIX. prompt.md has hard-wrapped paragraphs, broken after lines ${shown}.`);
+  console.log("  One paragraph per line, however long, and one bullet per line. The site shows the prompt in a\n  column narrower than the wrap, so a wrapped file wraps twice, mid-sentence.\n");
 }
 if (hard.size) {
   console.log("MUST FIX. Contact details in the artifacts:");
@@ -136,5 +161,5 @@ if (ask.size) {
   for (const [tok, files] of [...ask].sort()) console.log(`    ${tok.padEnd(16)} in ${[...files].sort().join(", ")}`);
   console.log("\n  Are the names invented, or real people? Are the amounts illustrative? Batch it into one question.\n  Invented placeholders are fine to keep.\n");
 }
-if (!hard.size && !ask.size && !prod.length) console.log("nothing to flag.");
-process.exit(hard.size ? 1 : 0);
+if (!hard.size && !ask.size && !prod.length && !wrapped.length) console.log("nothing to flag.");
+process.exit(hard.size || wrapped.length ? 1 : 0);
