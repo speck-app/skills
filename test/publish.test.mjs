@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,10 +15,24 @@ const script = new URL("../skills/speck-publish/scripts/publish.mjs", import.met
 const tmp = mkdtempSync(join(tmpdir(), "speck-publish-test-")) + "/";
 
 // A Speck that answers the way the API does, and remembers every request. /lookups takes no
-// token; app.files reflects only what's actually been PUT so far, not a fixed fixture.
+// token; app.files reflects only what's actually been PUT so far, not a fixed fixture. updatedAt
+// moves on every write, as the site's does; `edit()` on the result moves it the way an edit made
+// in the browser would, with new listing fields and file bytes for a pull to find. `stored` is
+// what has been PUT, by kind, which GET .../files/:kind answers with.
+const T0 = "2026-09-24T10:00:00.000Z";
 function stub(behaviour = {}) {
   const seen = [];
   const uploaded = new Set();
+  const stored = new Map();
+  let tick = 0;
+  let listing = { name: "Tally", blurb: "b", description: "d", categorySlug: "games", platformSlug: "web", tags: ["x"], testedWith: null };
+  const touch = () => { tick += 1; };
+  const updatedAt = () => new Date(Date.parse(T0) + tick * 60_000).toISOString();
+  const edit = (fields = {}, files = {}) => {
+    listing = { ...listing, ...fields };
+    for (const [k, v] of Object.entries(files)) { uploaded.add(k); stored.set(k, Buffer.from(v)); }
+    touch();
+  };
   const server = createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -26,7 +40,7 @@ function stub(behaviour = {}) {
     seen.push({ method: req.method, url: req.url, auth: req.headers.authorization, type: req.headers["content-type"], body });
     const send = (status, json, extra = {}) => { res.writeHead(status, { "content-type": "application/json", ...extra }); res.end(JSON.stringify(json)); };
     const files = () => ({ prototype: uploaded.has("prototype"), prompt: uploaded.has("prompt"), screenshot: uploaded.has("screenshot") });
-    const app = () => ({ publicId: "abcd2345", status: behaviour.published ? "published" : "draft", url: "https://speck.test/a/abcd2345", editUrl: "https://speck.test/apps/x/edit", files: files() });
+    const app = () => ({ publicId: "abcd2345", status: behaviour.published ? "published" : "draft", url: "https://speck.test/a/abcd2345", editUrl: "https://speck.test/apps/x/edit", ...listing, files: files(), rev: 1, updatedAt: updatedAt() });
     if (req.url === "/api/v1/lookups") return send(200, { ok: true, categories: [{ slug: "games", label: "Games" }], platforms: [{ slug: "web", label: "Web" }, { slug: "mobile", label: "Mobile" }] });
     if (req.headers.authorization !== "Bearer spk_good") return send(401, { ok: false, error: "Send a token as Authorization: Bearer spk_... (mint one at /settings)." });
     if (req.url === "/api/v1/me") {
@@ -37,18 +51,38 @@ function stub(behaviour = {}) {
       const b = JSON.parse(body.toString());
       if (b.remixOf && !behaviour.built) return send(409, { ok: false, error: "Build it first.", code: "build-first" });
       if (b.name === "") return send(422, { ok: false, error: "Give it a name.", field: "name" });
+      touch();
       return send(201, { ok: true, app: { ...app(), remixOf: b.remixOf ?? null } });
     }
+    if (req.method === "GET" && req.url === "/api/v1/apps/abcd2345") return send(behaviour.gone ? 404 : 200, behaviour.gone ? { ok: false, error: "No app with that id." } : { ok: true, app: app() });
+    if (req.method === "GET" && req.url.startsWith("/api/v1/apps/abcd2345/files/")) {
+      const kind = req.url.split("/").pop();
+      if (!uploaded.has(kind)) return send(404, { ok: false, error: `This app has no ${kind} yet.` });
+      const type = { prototype: "text/html; charset=utf-8", prompt: "text/markdown; charset=utf-8", screenshot: "image/webp" }[kind];
+      res.writeHead(200, { "content-type": type, "cache-control": "no-store" });
+      return res.end(stored.get(kind));
+    }
     if (req.method === "POST" && req.url === "/api/v1/apps/src12345/builds") { behaviour.built = true; return send(201, { ok: true, build: { appUrl: "https://speck.test/a/src12345", postedAt: "now", first: true } }); }
-    if (req.method === "PATCH" && req.url === "/api/v1/apps/abcd2345") return send(behaviour.gone ? 404 : 200, behaviour.gone ? { ok: false, error: "No app with that id." } : { ok: true, app: app() });
+    if (req.method === "PATCH" && req.url === "/api/v1/apps/abcd2345") {
+      if (behaviour.gone) return send(404, { ok: false, error: "No app with that id." });
+      listing = { ...listing, ...JSON.parse(body.toString()) };
+      touch();
+      return send(200, { ok: true, app: app() });
+    }
     if (req.method === "PUT" && req.url.startsWith("/api/v1/apps/abcd2345/files/")) {
-      uploaded.add(req.url.split("/").pop());
+      const kind = req.url.split("/").pop();
+      uploaded.add(kind);
+      stored.set(kind, body);
+      touch();
       return send(200, { ok: true, app: app() });
     }
     send(404, { ok: false, error: "No app with that id." });
   });
-  return new Promise((r) => server.listen(0, "127.0.0.1", () => r({ server, seen, url: `http://127.0.0.1:${server.address().port}` })));
+  return new Promise((r) => server.listen(0, "127.0.0.1", () => r({ server, seen, edit, updatedAt, url: `http://127.0.0.1:${server.address().port}` })));
 }
+
+// app.json as a run that matched the stub's current state would have left it.
+const matching = (s) => JSON.stringify({ publicId: "abcd2345", url: "https://speck.test/a/abcd2345", updatedAt: s.updatedAt() });
 
 function dotSpeck(dir, entry = {}) {
   mkdirSync(join(dir, ".speck"), { recursive: true });
@@ -104,17 +138,102 @@ test("publish creates the app, uploads the three files with the right types, wri
   assert.equal(seen[3].type, "text/html; charset=utf-8");
   assert.equal(seen[4].type, "text/markdown; charset=utf-8");
   assert.equal(seen[5].type, "image/png");
-  assert.equal(JSON.parse(readFileSync(join(dir, ".speck/app.json"), "utf8")).publicId, "abcd2345");
+  const written = JSON.parse(readFileSync(join(dir, ".speck/app.json"), "utf8"));
+  assert.equal(written.publicId, "abcd2345");
+  // The updatedAt of the LAST response, after the uploads moved it, so the next run sees no drift.
+  assert.equal(written.updatedAt, "2026-09-24T10:04:00.000Z");
   assert.deepEqual(Object.keys(JSON.parse(seen[2].body.toString())).sort(), ["blurb", "categorySlug", "description", "name", "platformSlug", "tags", "testedWith"]);
 });
 
-test("a second run patches instead of creating", async (t) => {
-  const { server, seen, url } = await stub(); t.after(() => server.close());
+test("a second run reads the app, then patches instead of creating", async (t) => {
+  const s = await stub(); const { server, seen, url } = s; t.after(() => server.close());
   const dir = dotSpeck(join(tmp, "again"));
-  writeFileSync(join(dir, ".speck/app.json"), JSON.stringify({ publicId: "abcd2345", url: "https://speck.test/a/abcd2345" }));
+  writeFileSync(join(dir, ".speck/app.json"), matching(s));
   assert.equal((await run(dir, url, ["publish"])).status, 0);
-  assert.equal(seen[2].method, "PATCH");
-  assert.equal(seen[2].url, "/api/v1/apps/abcd2345");
+  assert.deepEqual(seen.slice(2, 4).map((x) => `${x.method} ${x.url}`), ["GET /api/v1/apps/abcd2345", "PATCH /api/v1/apps/abcd2345"]);
+});
+
+// #123 on the Speck tracker: an edit made on the site must reach the repo, not be uploaded over.
+test("publish refuses while Speck is ahead of app.json, naming pull, and sends nothing", async (t) => {
+  const s = await stub(); const { server, seen, url } = s; t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "ahead"));
+  writeFileSync(join(dir, ".speck/app.json"), matching(s));
+  s.edit({ name: "Tally Two" });
+  const r = await run(dir, url, ["publish"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Speck has changed since this repo last matched it.*publish\.mjs pull/s);
+  assert.equal(seen.filter((x) => x.method === "PATCH" || x.method === "PUT").length, 0);
+});
+
+test("an app.json from before updatedAt is asked to pull once, with the reason", async (t) => {
+  const s = await stub(); const { server, seen, url } = s; t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "old-app-json"));
+  writeFileSync(join(dir, ".speck/app.json"), JSON.stringify({ publicId: "abcd2345", url: "https://speck.test/a/abcd2345" }));
+  const r = await run(dir, url, ["publish"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /has no updatedAt.*publish\.mjs pull/s);
+  assert.equal(seen.filter((x) => x.method === "PATCH" || x.method === "PUT").length, 0);
+});
+
+test("pull with nothing changed says so and writes nothing", async (t) => {
+  const s = await stub(); const { server, seen, url } = s; t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "pull-same"));
+  writeFileSync(join(dir, ".speck/app.json"), matching(s));
+  const before = readFileSync(join(dir, ".speck/prompt.md"), "utf8");
+  const r = await run(dir, url, ["pull"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Up to date with Speck/);
+  assert.equal(readFileSync(join(dir, ".speck/prompt.md"), "utf8"), before);
+  assert.deepEqual(seen.map((x) => `${x.method} ${x.url}`), ["GET /api/v1/apps/abcd2345"]);
+});
+
+test("pull brings the listing, the prompt and the prototype down when Speck is ahead, skips the screenshot, and lines up app.json", async (t) => {
+  const s = await stub(); const { server, seen, url } = s; t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "pull-ahead"));
+  writeFileSync(join(dir, ".speck/app.json"), matching(s));
+  s.edit({ name: "Tally Two", tags: ["x", "y"] }, { prompt: "Build me a better thing.\n", prototype: "<!doctype html><title>t</title>", screenshot: "RIFF....WEBP" });
+  const r = await run(dir, url, ["pull"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /pulled from Speck: entry\.json, prompt\.md/);
+  assert.match(r.stdout, /already matching: prototype\.html/);
+  const entry = JSON.parse(readFileSync(join(dir, ".speck/entry.json"), "utf8"));
+  assert.equal(entry.name, "Tally Two");
+  assert.deepEqual(entry.tags, ["x", "y"]);
+  assert.deepEqual(Object.keys(entry).sort(), ["blurb", "categorySlug", "description", "name", "platformSlug", "tags", "testedWith"]);
+  assert.equal(readFileSync(join(dir, ".speck/prompt.md"), "utf8"), "Build me a better thing.\n");
+  // The PNG on disk is untouched: the site's copy is WebP and shoot.mjs regenerates it anyway.
+  assert.equal(readFileSync(join(dir, ".speck/screenshot.png")).toString("hex"), "89504e470d0a1a0a");
+  assert.ok(!seen.some((x) => x.url.endsWith("/files/screenshot")));
+  assert.equal(JSON.parse(readFileSync(join(dir, ".speck/app.json"), "utf8")).updatedAt, s.updatedAt());
+  // And now publish goes through.
+  const again = await run(dir, url, ["publish"]);
+  assert.equal(again.status, 0, again.stderr);
+});
+
+test("pull refuses over uncommitted changes in .speck, naming them", async (t) => {
+  const s = await stub(); const { server, seen, url } = s; t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "pull-dirty"));
+  writeFileSync(join(dir, ".speck/app.json"), matching(s));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "."], { cwd: dir });
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"], { cwd: dir });
+  } catch { t.skip("no git"); return; }
+  writeFileSync(join(dir, ".speck/prompt.md"), "Half an edit.\n");
+  s.edit({ name: "Tally Two" });
+  const r = await run(dir, url, ["pull"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /prompt\.md ha(s|ve) changes git does not have.*Commit or stash/s);
+  assert.equal(readFileSync(join(dir, ".speck/prompt.md"), "utf8"), "Half an edit.\n");
+  assert.equal(seen.filter((x) => x.url.includes("/files/")).length, 0);
+});
+
+test("pull without app.json is a setup error naming publish", async (t) => {
+  const { server, url } = await stub(); t.after(() => server.close());
+  const dir = dotSpeck(join(tmp, "pull-none"));
+  const r = await run(dir, url, ["pull"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /nothing on Speck to pull from.*publish/s);
 });
 
 test("a stale app.json is reported, not looped, and --new starts over", async (t) => {
@@ -247,19 +366,19 @@ test("--remix-of with no value falls into the usage path instead of swallowing -
 });
 
 test("--remix-of on a re-run is reported and ignored, and the update still goes through", async (t) => {
-  const { server, seen, url } = await stub(); t.after(() => server.close());
+  const s = await stub(); const { server, seen, url } = s; t.after(() => server.close());
   const dir = dotSpeck(join(tmp, "remix-on-update"));
-  writeFileSync(join(dir, ".speck/app.json"), JSON.stringify({ publicId: "abcd2345", url: "https://speck.test/a/abcd2345" }));
+  writeFileSync(join(dir, ".speck/app.json"), matching(s));
   const r = await run(dir, url, ["publish", "--remix-of", "src12345", "--tool", "Codex"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /already names an app.*--remix-of/s);
-  assert.equal(seen[2].method, "PATCH");
+  assert.equal(seen[3].method, "PATCH");
 });
 
 test("a published app gets the live-app message, not the press-Publish one", async (t) => {
-  const { server, url } = await stub({ published: true }); t.after(() => server.close());
+  const s = await stub({ published: true }); const { server, url } = s; t.after(() => server.close());
   const dir = dotSpeck(join(tmp, "published"));
-  writeFileSync(join(dir, ".speck/app.json"), JSON.stringify({ publicId: "abcd2345", url: "https://speck.test/a/abcd2345" }));
+  writeFileSync(join(dir, ".speck/app.json"), matching(s));
   const r = await run(dir, url, ["publish"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Live app updated\. Open it to check:/);

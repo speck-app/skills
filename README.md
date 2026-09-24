@@ -28,9 +28,9 @@ Then, from inside the app's repo: "publish this to Speck".
 ## What it produces
 
 A tracked `.speck/` folder at the repo root: `entry.json`, `prompt.md`, `prototype.html`,
-`screenshot.png`, and `app.json`, written once the draft exists and before the uploads. You edit the
-first two by hand between runs; a re-run revises them rather than starting over. See
-[the skill](skills/speck-publish/SKILL.md).
+`screenshot.png`, and `app.json`, written once the draft exists and again after the uploads. You edit
+the first two by hand between runs, in the repo or on the site; a re-run pulls the site's edits down
+first and revises rather than starting over. See [the skill](skills/speck-publish/SKILL.md).
 
 ## The scripts
 
@@ -41,7 +41,7 @@ Four, under `skills/speck-publish/scripts/`, Node 20 or later, nothing to instal
 | `check.mjs` | Loads the prototype headless; fails on a console error or horizontal overflow at 320 px |
 | `shoot.mjs` | Renders the prototype to a 1600x1000 PNG, framed as a device for mobile, tablet and extension apps |
 | `datacheck.mjs` | Lists contact-shaped strings outside the reserved example shapes as failures, and person names and money as questions to ask the author |
-| `publish.mjs` | `lookups`, `whoami`, `build`, `publish`: the client for Speck's API |
+| `publish.mjs` | `lookups`, `whoami`, `build`, `pull`, `publish`: the client for Speck's API. `pull` brings edits made on the site into `.speck/`; `publish` refuses until it has run |
 
 `check.mjs` and `shoot.mjs` need a Chrome, Chromium, Brave or Edge on the machine and say where they
 looked when they find none. They write their temp files to the system temp directory and remove them

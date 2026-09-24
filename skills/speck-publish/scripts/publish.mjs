@@ -4,6 +4,7 @@
 //   node publish.mjs lookups
 //   node publish.mjs whoami
 //   node publish.mjs build <publicId> --tool "<text>" [--note "<text>"]
+//   node publish.mjs pull [--dir .speck]
 //   node publish.mjs publish [--dir .speck] [--remix-of <publicId> --tool "<text>" [--note "<text>"]] [--new]
 //
 // Reads SPECK_TOKEN, then ~/.config/speck/token. SPECK_URL points it at another Speck (a local one);
@@ -11,9 +12,16 @@
 // It creates the app or, when .speck/app.json exists, updates it; uploads the three files one call
 // each; writes app.json; prints the draft URL. It never publishes, and it never prints the token.
 //
+// app.json carries the app's updatedAt as of the last run, and the site moves updatedAt on every
+// change made there, a listing edit as much as a file replace. pull compares the two and, when the
+// site is ahead, brings the listing, the prompt and the prototype down into .speck/ so the edits
+// made on the site are the draft the next run revises. publish refuses while the site is ahead:
+// an upload over an edit made in the browser is the one thing this script must never do quietly.
+//
 // Exit 0 done, 1 the API or the files refused, 2 the setup is wrong (no token, a token Speck turns
 // down, no .speck, a usage error). Every refusal is a sentence on stderr the agent can act on.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -40,7 +48,7 @@ const flag = (name) => {
 const has = (name) => args.includes(name);
 
 function usage(code = 2) {
-  const text = "usage: node publish.mjs lookups | whoami | build <publicId> --tool T [--note N] | publish [--dir .speck] [--remix-of ID --tool T [--note N]] [--new]";
+  const text = "usage: node publish.mjs lookups | whoami | build <publicId> --tool T [--note N] | pull [--dir .speck] | publish [--dir .speck] [--remix-of ID --tool T [--note N]] [--new]";
   code === 0 ? console.log(text) : console.error(text);
   process.exit(code);
 }
@@ -74,8 +82,10 @@ function token() {
 
 // One call. Answers { status, body } and never throws on a 4xx; a network failure is the one
 // thing that exits here, since nothing after it can proceed. auth: false skips the header, for
-// the one endpoint (/lookups) that doesn't need a token.
-async function call(method, path, { json, raw, type, auth = true } = {}) {
+// the one endpoint (/lookups) that doesn't need a token. bytes: true is for the one endpoint that
+// answers with a file rather than JSON: a 200 comes back as { status, bytes, type }, and anything
+// else is parsed as the JSON refusal it is.
+async function call(method, path, { json, raw, type, auth = true, bytes = false } = {}) {
   const headers = {};
   if (auth) headers.authorization = `Bearer ${token()}`;
   let body;
@@ -90,6 +100,7 @@ async function call(method, path, { json, raw, type, auth = true } = {}) {
   // A 401 with a token sent means the token itself is dead (revoked, or mistyped), which is setup,
   // not a refusal: the server's own text ("Send a token as ...") reads as if none was sent.
   if (res.status === 401 && auth) die(`Speck did not accept the token in ${tokenSource}: it has been revoked or was copied wrong. Mint a new one at ${SETTINGS} and replace it.`, 2);
+  if (bytes && res.status === 200) return { status: 200, bytes: Buffer.from(await res.arrayBuffer()), type: res.headers.get("content-type") };
   let parsed = null;
   try { parsed = await res.json(); } catch { parsed = { ok: false, error: `${res.status} from ${path} with no JSON body.` }; }
   return { status: res.status, body: parsed, retryAfter: res.headers.get("retry-after") };
@@ -134,6 +145,83 @@ async function cmdBuild() {
   console.log(`${b.first ? "Posted" : "Updated"} your build of ${b.appUrl}`);
 }
 
+// app.json as the last run left it, or null. A file that is not JSON is a setup error either way.
+function readAppJson(appPath) {
+  if (!existsSync(appPath)) return null;
+  try { return JSON.parse(readFileSync(appPath, "utf8")); } catch (e) { die(`${appPath} is not JSON (${e.message}). Fix it, or run again with --new to create the app afresh.`, 2); }
+}
+
+function writeAppJson(appPath, app) {
+  writeFileSync(appPath, JSON.stringify({ publicId: app.publicId, url: app.url, updatedAt: app.updatedAt }, null, 2) + "\n");
+}
+
+// The app as Speck has it now, for an app.json that names one. A 404 means the app is gone from
+// Speck, or the token belongs to someone else now; either way the file is stale.
+async function liveApp(existing, appPath) {
+  const r = await call("GET", `/apps/${existing.publicId}`);
+  if (r.status === 404) die(`${appPath} names ${existing.publicId}, which is no longer on Speck. Run again with --new to create it afresh, or fix app.json.`, 1);
+  if (!r.body?.ok) refused(r, "read");
+  return r.body.app;
+}
+
+// Whether the site has changed since app.json was last written. An app.json with no updatedAt was
+// written by an older run and has to be lined up once.
+function siteAhead(existing, app) {
+  return !existing.updatedAt || existing.updatedAt !== app.updatedAt;
+}
+
+// Paths under dir with changes git does not have. Outside a repo, or without git, nothing is in
+// the way: the files are whatever is on disk and the person chose to run this.
+function uncommitted(dir) {
+  try {
+    const out = execFileSync("git", ["status", "--porcelain", "--", dir], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return out.split("\n").filter(Boolean).map((l) => l.slice(3));
+  } catch {
+    return [];
+  }
+}
+
+// The listing, the prompt and the prototype as Speck has them, written over .speck/ when the site
+// is ahead of app.json. The screenshot is not pulled: the site stores it re-encoded as WebP, and
+// shoot.mjs regenerates it from the prototype on every run anyway. The listing comes from the app
+// object, the two files from their own endpoint. Refuses over uncommitted changes in .speck/, as
+// git would: a download must not be what loses a half-finished local edit.
+async function cmdPull() {
+  const dir = resolve(flag("--dir") || ".speck");
+  const appPath = join(dir, "app.json");
+  const existing = readAppJson(appPath);
+  if (!existing?.publicId) die(`No ${appPath}, so there is nothing on Speck to pull from. Run publish first.`, 2);
+  const app = await liveApp(existing, appPath);
+  if (!siteAhead(existing, app)) {
+    console.log(`Up to date with Speck (${app.url}, changed ${app.updatedAt}).`);
+    return;
+  }
+  const dirty = uncommitted(dir);
+  if (dirty.length) die(`Speck is ahead of ${dir}, but ${dirty.join(", ")} ${dirty.length === 1 ? "has" : "have"} changes git does not have. Commit or stash them, then pull again.`, 1);
+
+  const changed = [];
+  const same = [];
+  const write = (name, next) => {
+    const path = join(dir, name);
+    const prev = existsSync(path) ? readFileSync(path) : null;
+    if (prev && prev.equals(next)) { same.push(name); return; }
+    writeFileSync(path, next);
+    changed.push(name);
+  };
+  const fields = Object.fromEntries(ENTRY_KEYS.map((k) => [k, app[k]]));
+  write("entry.json", Buffer.from(JSON.stringify(fields, null, 2) + "\n"));
+  for (const f of FILES) {
+    if (f.kind === "screenshot" || !app.files[f.kind]) continue;
+    const r = await call("GET", `/apps/${app.publicId}/files/${f.kind}`, { bytes: true });
+    if (r.status !== 200) refused(r, `pull ${f.name}`);
+    write(f.name, r.bytes);
+  }
+  writeAppJson(appPath, app);
+  if (changed.length) console.log(`pulled from Speck: ${changed.join(", ")}`);
+  if (same.length) console.log(`already matching: ${same.join(", ")}`);
+  console.log(`${dir} now matches Speck as of ${app.updatedAt}. git diff shows what was edited on the site.`);
+}
+
 async function cmdPublish() {
   const dir = resolve(flag("--dir") || ".speck");
   const entryPath = join(dir, "entry.json");
@@ -152,10 +240,7 @@ async function cmdPublish() {
   const present = FILES.filter((f) => existsSync(join(dir, f.name)));
   if (!present.length) die(`Nothing to upload: none of ${FILES.map((f) => f.name).join(", ")} is in ${dir}.`, 2);
   const appPath = join(dir, "app.json");
-  let existing = null;
-  if (!has("--new") && existsSync(appPath)) {
-    try { existing = JSON.parse(readFileSync(appPath, "utf8")); } catch (e) { die(`${appPath} is not JSON (${e.message}). Fix it, or run again with --new to create the app afresh.`, 2); }
-  }
+  const existing = has("--new") ? null : readAppJson(appPath);
 
   // Validate against the live lists before sending anything; they change.
   const l = await lookups();
@@ -169,8 +254,16 @@ async function cmdPublish() {
   let app;
   if (existing?.publicId) {
     if (remixOf) console.error(`${appPath} already names an app; --remix-of and --tool do nothing on an update.`);
+    // Never over an edit made on the site. The comparison is updatedAt, which the site moves on
+    // every change there; app.json holds the value from the last run.
+    const live = await liveApp(existing, appPath);
+    if (siteAhead(existing, live)) {
+      const why = existing.updatedAt
+        ? `Speck has changed since this repo last matched it (${live.updatedAt}, app.json says ${existing.updatedAt})`
+        : `${appPath} has no updatedAt, so this run cannot tell whether the app was edited on Speck`;
+      die(`${why}. Run \`publish.mjs pull\` first to bring those edits into ${dir}, revise, then publish again.`, 1);
+    }
     const r = await call("PATCH", `/apps/${existing.publicId}`, { json: fields });
-    if (r.status === 404) die(`${appPath} names ${existing.publicId}, which is no longer on Speck. Run again with --new to create it afresh, or fix app.json.`, 1);
     if (!r.body?.ok) refused(r, "update");
     app = r.body.app;
   } else {
@@ -181,7 +274,7 @@ async function cmdPublish() {
     }
     if (!r.body?.ok) refused(r, "create");
     app = r.body.app;
-    writeFileSync(appPath, JSON.stringify({ publicId: app.publicId, url: app.url }, null, 2) + "\n");
+    writeAppJson(appPath, app);
   }
 
   for (const f of present) {
@@ -190,6 +283,9 @@ async function cmdPublish() {
     app = r.body.app;
     console.log(`uploaded ${f.name}`);
   }
+  // Written again after the uploads: each one moves updatedAt, and the value app.json keeps has to
+  // be the last one, or the next run would think the site had moved on.
+  writeAppJson(appPath, app);
   const absent = FILES.filter((f) => !app.files[f.kind]).map((f) => f.name);
   if (absent.length) console.log(`still missing on Speck: ${absent.join(", ")}`);
   if (app.status === "published") {
@@ -209,6 +305,6 @@ if (has("-h") || has("--help")) usage(0);
     die(`SPECK_URL is plain http to ${u.host}, and the token would travel in the clear. Use https, or http only for localhost.`, 2);
   }
 }
-const commands = { lookups: cmdLookups, whoami: cmdWhoami, build: cmdBuild, publish: cmdPublish };
+const commands = { lookups: cmdLookups, whoami: cmdWhoami, build: cmdBuild, pull: cmdPull, publish: cmdPublish };
 if (!commands[cmd]) usage();
 commands[cmd]().catch((e) => die(e.message || String(e), 1));

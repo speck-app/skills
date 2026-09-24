@@ -80,19 +80,24 @@ A tracked `.speck/` folder at the repo root:
   prompt.md         the spec someone builds from → references/prompt.md
   prototype.html    one file, no dependencies, no network, state in memory → references/prototype.md
   screenshot.png    1600x1000, from scripts/shoot.mjs
-  app.json          written by scripts/publish.mjs once the draft exists, before the uploads; what makes a re-run an update
+  app.json          written by scripts/publish.mjs once the draft exists and again after the uploads; what makes a re-run an update, and what says when the repo last matched Speck
 ```
 
 **Leave the folder tracked.** Do not add `.speck/` to `.gitignore` and do not suggest it. The
-author edits `entry.json` and `prompt.md` by hand between runs, and a tracked folder is what makes
-a re-run's changes show up in `git diff` rather than land silently.
+author edits `entry.json` and `prompt.md` by hand between runs, and on the site too, and a tracked
+folder is what makes a re-run's changes, and a pull's, show up in `git diff` rather than land
+silently.
 
 Only those files are read by the site. Keep the prototype one file.
 
 ## Re-runs revise, they do not regenerate
 
-When `.speck/` already exists, **read every file in it first** and treat its prose as the draft you
-are revising. The author has almost certainly edited the words, and those edits are the point.
+When `.speck/` already exists, **pull first, then read every file in it** and treat its prose as
+the draft you are revising. The author has almost certainly edited the words, in the repo or on
+the site, and those edits are the point. `node <skill>/scripts/publish.mjs pull` brings the
+listing, the prompt and the prototype down from Speck when they were changed there since the last
+run, and says so; `publish` refuses to run until that has happened, so an edit made in the browser
+is never uploaded over. After a pull, `git diff .speck` is the list of what was edited on the site.
 
 **Author-owned copy, carried across verbatim** unless one of the cases below applies:
 
@@ -115,7 +120,9 @@ and name it in the summary.
 
 "I would have phrased it differently" is none of these. Regenerated freely: `prototype.html` and
 `screenshot.png`; they are derived from the interface and rebuilding them is usually why you were
-run. If the author hand-edited the prototype, say so in the summary, because the rebuild loses it.
+run. A prototype that a pull just changed was hand-edited on the site: carry those edits into the
+rebuild, or ask before losing them. If the author hand-edited the prototype in the repo, say so in
+the summary, because the rebuild loses it.
 
 A re-run on an app that is already published updates its listing and replaces its files in place,
 live, because the API's update and upload calls work on published apps too. "You never publish" is
@@ -151,10 +158,13 @@ for that install location, the speck-publish skill's own directory, not the app'
 
 ## Workflow
 
-1. **Read what is there.** If `.speck/` exists, read all of it before writing anything.
-   → Re-runs revise, they do not regenerate.
-2. **Check the token**: `node <skill>/scripts/publish.mjs whoami`. It prints the username the draft
+1. **Check the token**: `node <skill>/scripts/publish.mjs whoami`. It prints the username the draft
    will go under, or exits 2 with what to do.
+2. **Pull, then read what is there.** If `.speck/app.json` exists, run
+   `node <skill>/scripts/publish.mjs pull`: it fetches what was edited on Speck since the last run,
+   or says the repo is up to date. It refuses over uncommitted changes in `.speck/`; commit them
+   first. Then read all of `.speck/` before writing anything. → Re-runs revise, they do not
+   regenerate.
 3. **Identify the app**: its platform and its category, both from the lists
    `node <skill>/scripts/publish.mjs lookups` prints. The lists change; never carry them in your
    head. The platform sets the prototype's proportions and the prompt's wording.
