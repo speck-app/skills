@@ -89,7 +89,7 @@ logging". Short paragraphs; a human is going to edit this. → `style.md`
 
 ## An example, in full
 
-Seventy lines, for a phone app. Note what it does not say: nothing about the prototype, no hex
+Fifty-nine lines, for a phone app. Note what it does not say: nothing about the prototype, no hex
 values, no framework, no file layout.
 
 ```markdown
@@ -119,7 +119,7 @@ unmarks it there too. With no habits yet the tab says so and sends me to Today.
 
 **Export.** A button at the bottom of the list writes a CSV of everything and
 hands it to the system share sheet: `date,habit`, one row per day I marked
-something, oldest first. Until something is marked the button is greyed out.
+something, oldest first. Until something is marked the button is grayed out.
 
 ## What it is not
 
