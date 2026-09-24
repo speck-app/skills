@@ -85,7 +85,8 @@ app's own vocabulary.
 - Never from production. Schema yes, rows no. → SKILL.md
 - Money: invented, round, obviously illustrative, in the currency the real app uses.
 - People: if they might be the author's family or contacts, ask before using or replacing.
-- Contact details never appear, invented or not.
+- Contact details are invented and use reserved shapes only: addresses at `example.com`, `.test`
+  or `.invalid`, phone numbers in the 555-01xx block, no street addresses or coordinates.
 - Dates are offsets from today, never calendar literals, built from local date parts or at noon so
   a timezone cannot shift a day. Pin any clock the interface depends on.
 - No autofocus on load: it scrolls the page the prototype is embedded in.

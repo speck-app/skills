@@ -17,7 +17,8 @@ you a palette.
    scale, spacing and component shapes wholesale.
 3. **Design mockups.** `design/`, `mockups/`, `screens/`. Take layout, palette and copy freely. The
    names in them may be real people (mockups are where a designer reaches for family), so treat
-   person names as something to ask about.
+   person names as something to ask about. A folder of captures of the running app is not a mockup:
+   it is a screenshot with live records in it, and the production-data rule in SKILL.md applies.
 4. **Colour literals in source.**
    ```bash
    grep -rhoE 'Color\(hex: *"[0-9a-fA-F]{6}"\)|#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)' . \

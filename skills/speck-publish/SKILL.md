@@ -41,11 +41,13 @@ anonymised. Anonymising production data is handling production data.
 If a file looks like one of those (`dump.sql`, `*-export.csv`, `backup/`, `prod-*`, a `.sqlite`
 with rows in it), its schema is fine to read and its rows are not.
 
-Two more rules with no exceptions:
+Three more rules with no exceptions:
 
 - **No personally identifiable information.** No real names, emails, phone numbers, addresses,
   precise locations, health readings, or anything that identifies a person. If the app has a people
   concept and those people might be the author's family or contacts, ask (below).
+- **Contact details are invented, in reserved shapes only**: addresses at `example.com`, `.test` or
+  `.invalid`, phone numbers in the 555-01xx block, no street addresses or coordinates.
 - **Money is invented.** An expense app has amounts in it, so invent round, obviously illustrative
   figures in whatever currency the app uses. Never a real amount, even an old one.
 
@@ -64,8 +66,9 @@ with everything batched, the candidates and where they came from:
 Add to the same question anything else only they know: what tool they build with (`testedWith`),
 and why they built it, if you want a sentence of that in the description.
 
-`scripts/datacheck.mjs` scans the finished files for contact-shaped strings (a failure) and lists
-person names and amounts as questions. It prompts your judgment; it is not a gate.
+`scripts/datacheck.mjs` scans the finished files for contact-shaped strings outside the reserved
+shapes (a failure) and lists person names and amounts as questions. It prompts your judgment; it is
+not a gate.
 
 ## The output
 
@@ -77,7 +80,7 @@ A tracked `.speck/` folder at the repo root:
   prompt.md         the spec someone builds from → references/prompt.md
   prototype.html    one file, no dependencies, no network, state in memory → references/prototype.md
   screenshot.png    1600x1000, from scripts/shoot.mjs
-  app.json          written by scripts/publish.mjs after the first upload; what makes a re-run an update
+  app.json          written by scripts/publish.mjs once the draft exists, before the uploads; what makes a re-run an update
 ```
 
 **Leave the folder tracked.** Do not add `.speck/` to `.gitignore` and do not suggest it. The
@@ -91,30 +94,36 @@ Only those files are read by the site. Keep the prototype one file.
 When `.speck/` already exists, **read every file in it first** and treat its prose as the draft you
 are revising. The author has almost certainly edited the words, and those edits are the point.
 
-**Author-owned copy, carried across verbatim** unless one of the two triggers below fires:
+**Author-owned copy, carried across verbatim** unless one of the cases below applies:
 
 - every field in `entry.json`
 - the prompt's prose: the opening paragraph, "Ask me first", "What I want", "What it is not",
   "Rules that matter", "How it should feel", and any section the author has visibly rewritten
 
-**Two triggers, and only these two, license a rewrite:**
+**Two triggers license a rewrite:**
 
 1. **The app's behaviour materially changed** and the text is now wrong: a screen that no longer
    exists, a rule that was inverted, a feature that shipped. Fix the part that became false. Do not
    restyle the sentences around it.
 2. **The template changed**: `references/prompt.md` now requires a section the file lacks, or the
-   file has a section the template dropped. Add or remove that section, nothing else.
+   file has a section the template dropped. Add or remove that section, nothing else. A section
+   missing from an older file is not a template change unless the template now requires it.
 
-"I would have phrased it differently" is neither trigger. Regenerated freely: `prototype.html` and
+A third case: a value the site now refuses (a category or platform slug gone from `lookups`, a
+field over its limit), or a change the author asks for in this session. Change that value only,
+and name it in the summary.
+
+"I would have phrased it differently" is none of these. Regenerated freely: `prototype.html` and
 `screenshot.png`; they are derived from the interface and rebuilding them is usually why you were
 run. If the author hand-edited the prototype, say so in the summary, because the rebuild loses it.
 
 A re-run on an app that is already published updates its listing and replaces its files in place,
-live, because the API's update and upload calls work on published apps too; "you never publish" is
-about the first publish, not this step, so say in the closing summary that the live app changed.
+live, because the API's update and upload calls work on published apps too. "You never publish" is
+about the first publish, not this step. Tell the person before you run publish that the app is live
+and this run changes it, and say again in the closing summary that the live app changed.
 
 **Say what you touched.** The closing summary names every field and section you changed and which
-trigger justified it, and says the rest was left alone.
+case above justified it, and says the rest was left alone.
 
 ## Never invent the author's reasons
 
@@ -129,14 +138,16 @@ all fiction under their name. With nothing from them, say nothing about why.
 `scripts/publish.mjs` reads `SPECK_TOKEN`, then `~/.config/speck/token`. With neither it prints the
 settings URL and exits 2. Tell the person to mint a token under API tokens in their Speck settings
 and put it in that file, mode 0600. Never write the token anywhere in the repo, never print it, and
-never ask them to paste it into this conversation.
+never ask them to paste it into this conversation. Never read or print the token file either:
+`whoami` is the check. If the person pastes a token into the conversation anyway, do not repeat it,
+and tell them to revoke it and mint a new one.
 
 ## Script paths
 
 The scripts sit in `scripts/` next to this file. Every command below runs with the app's own repo
 as the working directory, so a path like `.speck/prototype.html` is relative to the app, while the
 script itself is relative to wherever the skill was installed. `<skill>` in a command below stands
-for that install location — the speck-publish skill's own directory, not the app's.
+for that install location, the speck-publish skill's own directory, not the app's.
 
 ## Workflow
 
@@ -161,19 +172,25 @@ for that install location — the speck-publish skill's own directory, not the a
 9. **Shoot**: `node <skill>/scripts/shoot.mjs .speck/prototype.html .speck/screenshot.png`. Look at
    the PNG. The interesting part of the first screen must be in the top of it.
 10. **Datacheck**: `node <skill>/scripts/datacheck.mjs .speck`. It scans the finished files for
-    contact-shaped strings, a failure to fix, and lists person names and amounts as questions.
-    Anything it raises that the batched question in step 5 did not already cover is a follow-up
-    question to the author now; asking it here is not a breach of "ask once".
+    contact-shaped strings outside the reserved shapes, a failure to fix, and lists person names
+    and amounts as questions. Anything it raises that the batched question in step 5 did not
+    already cover is a follow-up question to the author now; asking it here is not a breach of "ask
+    once". Entries that are the app's own interface copy need no question.
 11. **Check the copy you wrote or revised this run** against `references/style.md`: the blurb, the
     description, the prompt. Copy carried over verbatim from the author needs no re-check.
 12. **Publish**: `node <skill>/scripts/publish.mjs publish`. It creates the app or updates it,
-    uploads the files, writes `app.json`, and prints the draft URL. If the person built this from an
-    app on Speck and wants it listed as a remix, add `--remix-of <id> --tool "<what they built
-    with>"` and, if they gave one, `--note "<one line>"`; the script posts their build first, since
-    a remix on Speck is what a build becomes.
+    writes `app.json` as soon as the draft exists, uploads the files, and prints the draft URL.
+    If the person built this from an app on Speck and wants it listed as a remix, `--remix-of`
+    writes something public, so ask before running it: what they built it with, and whether they
+    want a one-line note. Tell them the "built with" line appears on the source app straight away,
+    before the draft exists, because a remix on Speck is what a build becomes. The id is the eight
+    characters after `/a/` in that app's URL. Then add `--remix-of <id> --tool "<what they built
+    with>"` and, if they gave one, `--note "<one line>"`.
 13. **Say what you did.** The draft URL on its own line at the end, with "open it, check the
     prototype, press Publish". Above it: what you reproduced and what you invented, and on a re-run
-    every piece of copy you changed and which trigger justified it.
+    every piece of copy you changed and which case justified it. Say which screens you drove and
+    how; if you had no browser, say so plainly and tell the author to click through before pressing
+    Publish.
 
 ## Common mistakes
 
