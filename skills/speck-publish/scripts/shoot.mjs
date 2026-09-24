@@ -41,7 +41,15 @@ const out = resolve(output);
 if (!existsSync(file)) { console.error(`no such file: ${file}`); process.exit(2); }
 
 const entryPath = flag("--entry") ? resolve(flag("--entry")) : join(dirname(file), "entry.json");
-const platform = existsSync(entryPath) ? JSON.parse(readFileSync(entryPath, "utf8")).platformSlug : undefined;
+let platform;
+if (existsSync(entryPath)) {
+  try {
+    platform = JSON.parse(readFileSync(entryPath, "utf8")).platformSlug;
+  } catch (e) {
+    console.error(`${entryPath} is not JSON: ${e.message}`);
+    process.exit(2);
+  }
+}
 const framed = FRAMED[platform];
 
 const src = readFileSync(file, "utf8");
@@ -49,6 +57,7 @@ let width = DEFAULT_WIDTH;
 if (!framed) {
   const declared = src.match(/<meta\s+name="speck:shot-width"\s+content="(\d+)"/i)?.[1];
   width = Number(flag("--w") ?? declared ?? DEFAULT_WIDTH);
+  if (Number.isNaN(width)) { console.error("shot width must be a number"); process.exit(2); }
   if (!Number.isInteger(width) || width < 320 || width > OUT.width || width % 16 !== 0) {
     console.error(`shot width ${width} must be a multiple of 16 between 320 and ${OUT.width}`);
     process.exit(2);

@@ -45,3 +45,18 @@ test("honours speck:shot-width for a narrower window", { skip: !chrome && "no Ch
 test("refuses a width that is not a multiple of 16", () => {
   assert.equal(run(fixture("clean.html"), `${tmp}x.png`, "--w", "500").status, 2);
 });
+
+test("rejects a non-numeric --w with a plain message, not NaN", () => {
+  const r = run(fixture("clean.html"), `${tmp}nan.png`, "--w", "abc");
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /shot width must be a number/);
+  assert.doesNotMatch(r.stderr, /NaN/);
+});
+
+test("errors on a bad entry.json instead of throwing", () => {
+  const out = `${tmp}badentry.png`;
+  const r = run(fixture("badentry/prototype.html"), out);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /entry\.json is not JSON/);
+  assert.doesNotMatch(r.stderr, /\n\s+at /);
+});

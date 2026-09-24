@@ -40,5 +40,9 @@ export function runChrome(chrome, args) {
 export const HIDE_CHROME = "<style>[data-proto-chrome]{display:none !important}</style>";
 
 export function injectHead(html, snippet) {
-  return html.includes("</head>") ? html.replace("</head>", `${snippet}</head>`) : snippet + html;
+  if (html.includes("</head>")) return html.replace("</head>", `${snippet}</head>`);
+  // No head to land in. If there is a doctype, the snippet goes after it, not before: putting
+  // anything ahead of the doctype line pushes the page into quirks mode.
+  const doctype = html.match(/^\s*<!doctype[^>]*>/i)?.[0];
+  return doctype ? html.slice(0, doctype.length) + snippet + html.slice(doctype.length) : snippet + html;
 }

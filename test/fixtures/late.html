@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>clean</title>
+<style>:root{--paper:#fff;--ink:#111}body{margin:0;background:var(--paper);color:var(--ink);font:16px sans-serif}.app{max-width:390px;margin:0 auto;padding:16px}</style>
+</head><body><div class="app"><h1>Clean</h1><button id="b">Tap</button><p id="n">0</p></div>
+<script>let n=0;document.getElementById("b").onclick=()=>{document.getElementById("n").textContent=++n};</script>
+<script>setTimeout(()=>{throw new Error("late")},3000)</script>
+</body></html>
