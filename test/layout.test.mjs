@@ -33,7 +33,7 @@ function walk(dir, out = []) {
 }
 
 test("nothing in the skill is Claude-only", () => {
-  for (const f of walk(root)) {
+  for (const f of walk(join(root, "skills"))) {
     if (!relative(root, f).startsWith("skills/")) continue;
     const text = readFileSync(f, "latin1").toLowerCase();
     assert.doesNotMatch(text, /browser pane|claude code only|\bclaude\.md\b/, f);

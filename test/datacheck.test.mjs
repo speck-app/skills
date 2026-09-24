@@ -15,6 +15,8 @@ test.before(() => {
   mkdirSync(`${fx}repo`, { recursive: true });
   writeFileSync(`${fx}repo/users-export.csv`, "id,name\n");
   writeFileSync(`${fx}repo/app.sqlite`, "");
+  mkdirSync(`${fx}money`, { recursive: true });
+  writeFileSync(`${fx}money/p.txt`, "Price: 12,00 €\nAlready listed at £1,200.00 too.\n");
 });
 
 test("names and money are questions, not failures", () => {
@@ -45,4 +47,25 @@ test("production-looking files in the repo are named as sources not to read", ()
 
 test("usage without a directory", () => {
   assert.equal(run().status, 2);
+});
+
+test("a nonexistent artifact dir exits 2 with a plain message, not a stack trace", () => {
+  const r = run(`${fx}no-such-artifact-dir`, `${fx}repo`);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /no such directory/i);
+  assert.doesNotMatch(r.stderr, /\bat /);
+});
+
+test("a nonexistent repo root still runs and exits 0 on clean artifacts", () => {
+  const r = run(`${fx}only-clean`, `${fx}no-such-repo-root`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /repo root does not exist/i);
+});
+
+test("comma-decimal money (amount before the symbol) is caught too, alongside a symbol-first amount", () => {
+  const r = run(`${fx}money`, `${fx}repo`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ask the author/i);
+  assert.match(r.stdout, /12,00 €/);
+  assert.match(r.stdout, /£1,200\.00/);
 });
