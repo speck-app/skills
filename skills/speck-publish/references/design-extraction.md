@@ -21,6 +21,7 @@ you a palette.
 4. **Colour literals in source.**
    ```bash
    grep -rhoE 'Color\(hex: *"[0-9a-fA-F]{6}"\)|#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)' . \
+     --exclude-dir=node_modules --exclude-dir=.git \
      --include='*.swift' --include='*.kt' --include='*.css' --include='*.js' --include='*.ts' \
      --include='*.tsx' --include='*.html' --include='*.dart' | sort | uniq -c | sort -rn | head -30
    ```
