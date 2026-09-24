@@ -1,0 +1,6 @@
+{
+  "name": "speck-publish",
+  "description": "Publish an app to Speck from its own repo.",
+  "version": "1.0.0",
+  "author": { "name": "Speck", "url": "https://speck.app" }
+}

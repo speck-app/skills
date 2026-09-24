@@ -1,0 +1,7 @@
+{
+  "name": "speck",
+  "owner": { "name": "Speck", "url": "https://speck.app" },
+  "plugins": [
+    { "name": "speck-publish", "source": "./", "description": "Publish an app to Speck from its own repo: the prompt, the prototype and the screenshot, as a draft to check." }
+  ]
+}
