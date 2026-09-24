@@ -28,7 +28,7 @@ app exists for) and skip permutations that teach nothing.
 File size follows this. A one-screen app lands near 20 KB; a multi-tab app with sheets and a long
 list lands past 50 KB, and that is right.
 
-## Navigate the way the app does
+## Move through it the way the app does
 
 Nothing appears inside the app that a user of the real app would not see. No sample-data note, no
 demo banner, no reset button, no extra tab. Refresh is the reset. A comment in the source says the
@@ -72,7 +72,8 @@ a `:root` block of named tokens: `--paper`, `--ink`, `--muted`, `--accent`, and 
 them `--accent-2` and `--field`. Every colour in the file is drawn from them, the same tokens are
 redefined under `prefers-color-scheme: dark`, and a comment above the block says the palette is one
 choice and what it is. One accent with a job; a second only where a second job exists. The prompt
-never mentions colour: the palette is the builder's to keep or change, and the tokens are how.
+never names a colour value: the prototype's palette is the builder's to keep or change, and the
+tokens are how.
 
 ## The content
 
@@ -101,7 +102,7 @@ the version you designed.
 
 - Palette, type, radii, density and dark or light match what the repo says.
 - Interactions feel like the platform: sheets rise, rows highlight, toggles snap.
-- Real behaviour: buttons do the thing, totals recompute, screens navigate.
+- Real behaviour: buttons do the thing, totals recompute, screens change.
 - No device chrome.
 - 44 px minimum targets, visible `:focus-visible`, `prefers-reduced-motion` honoured, labels on
   icon-only controls, no horizontal scroll at 320 px.
@@ -109,7 +110,7 @@ the version you designed.
 ## Before you call it done
 
 ```bash
-node scripts/check.mjs .speck/prototype.html
+node <skill>/scripts/check.mjs .speck/prototype.html
 ```
 
 fails on a console error or on horizontal overflow at 320 px. Then drive it yourself in a browser:
