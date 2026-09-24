@@ -180,8 +180,22 @@ test("never prints the token, even on a 401", async (t) => {
   const { server, url } = await stub(); t.after(() => server.close());
   const dir = join(tmp, "401"); mkdirSync(dir, { recursive: true });
   const r = await run(dir, url, ["whoami"], { SPECK_TOKEN: "spk_wrongwrongwrong" });
-  assert.equal(r.status, 1);
+  assert.equal(r.status, 2);
   assert.doesNotMatch(r.stdout + r.stderr, /spk_wrong/);
+});
+
+test("a token Speck turns down is a setup error naming where it came from and the settings URL", async (t) => {
+  const { server, url } = await stub(); t.after(() => server.close());
+  const dir = join(tmp, "401-source"); mkdirSync(join(dir, ".config/speck"), { recursive: true });
+  const env = await run(dir, url, ["whoami"], { SPECK_TOKEN: "spk_revoked" });
+  assert.equal(env.status, 2);
+  assert.match(env.stderr, /did not accept the token in SPECK_TOKEN/);
+  assert.match(env.stderr, new RegExp(`${url}/settings#tokens`.replace(/[.]/g, "\\.")));
+  writeFileSync(join(dir, ".config/speck/token"), "spk_revoked\n");
+  const file = await run(dir, url, ["whoami"], { SPECK_TOKEN: "" });
+  assert.equal(file.status, 2);
+  assert.match(file.stderr, /did not accept the token in .*\.config\/speck\/token/);
+  assert.doesNotMatch(env.stderr + file.stderr, /spk_revoked/);
 });
 
 test("a token holding a line break is refused, not sent, and never printed", async (t) => {

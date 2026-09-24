@@ -10,8 +10,8 @@
 // It creates the app or, when .speck/app.json exists, updates it; uploads the three files one call
 // each; writes app.json; prints the draft URL. It never publishes, and it never prints the token.
 //
-// Exit 0 done, 1 the API or the files refused, 2 the setup is wrong (no token, no .speck, a usage
-// error). Every refusal is a sentence on stderr the agent can act on.
+// Exit 0 done, 1 the API or the files refused, 2 the setup is wrong (no token, a token Speck turns
+// down, no .speck, a usage error). Every refusal is a sentence on stderr the agent can act on.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -49,16 +49,21 @@ function die(msg, code = 1) { console.error(msg); process.exit(code); }
 // then quote back in the error.
 const TOKEN_SHAPE = /^[\x21-\x7e]+$/;
 
+// Where the token came from, for the message when Speck turns it down.
+let tokenSource = null;
+
 function token() {
   const env = (process.env.SPECK_TOKEN || "").trim();
   if (env) {
     if (!TOKEN_SHAPE.test(env)) die(`SPECK_TOKEN isn't a single token (no spaces or line breaks). Copy just the token from ${SETTINGS}.`, 2);
+    tokenSource = "SPECK_TOKEN";
     return env;
   }
   if (existsSync(TOKEN_FILE)) {
     const t = readFileSync(TOKEN_FILE, "utf8").trim();
     if (t) {
       if (!TOKEN_SHAPE.test(t)) die(`${TOKEN_FILE} isn't a single token (no spaces or line breaks). Copy just the token from ${SETTINGS}.`, 2);
+      tokenSource = TOKEN_FILE;
       return t;
     }
   }
@@ -80,6 +85,9 @@ async function call(method, path, { json, raw, type, auth = true } = {}) {
   } catch (e) {
     die(`Couldn't reach ${BASE}: ${e.cause?.code ?? e.message}.`, 1);
   }
+  // A 401 with a token sent means the token itself is dead (revoked, or mistyped), which is setup,
+  // not a refusal: the server's own text ("Send a token as ...") reads as if none was sent.
+  if (res.status === 401 && auth) die(`Speck did not accept the token in ${tokenSource}: it has been revoked or was copied wrong. Mint a new one at ${SETTINGS} and replace it.`, 2);
   let parsed = null;
   try { parsed = await res.json(); } catch { parsed = { ok: false, error: `${res.status} from ${path} with no JSON body.` }; }
   return { status: res.status, body: parsed, retryAfter: res.headers.get("retry-after") };
