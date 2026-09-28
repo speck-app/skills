@@ -63,8 +63,8 @@ with everything batched, the candidates and where they came from:
 > The seed data has five venue names and three first names. Are those invented placeholders I can
 > keep, or real people I should replace? Everything else I am reproducing is interface copy.
 
-Add to the same question anything else only they know: what tool they build with (`testedWith`),
-and why they built it, if you want a sentence of that in the description.
+Add to the same question anything else only they know: what tool and model they build with
+(`testedWith`), and why they built it, if you want a sentence of that in the description.
 
 `scripts/datacheck.mjs` scans the finished files for contact-shaped strings outside the reserved
 shapes (a failure) and lists person names and amounts as questions. It prompts your judgment; it is

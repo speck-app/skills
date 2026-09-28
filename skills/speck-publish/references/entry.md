@@ -11,7 +11,7 @@ the description beside the prototype. Seven keys, all of them the author's copy 
   "categorySlug": "health-and-fitness",
   "platformSlug": "mobile",
   "tags": ["habits", "health", "routine"],
-  "testedWith": "Codex, Sep 2026"
+  "testedWith": "Claude Code, Opus 5.5"
 }
 ```
 
@@ -30,8 +30,8 @@ the description beside the prototype. Seven keys, all of them the author's copy 
   invoicing) and the app's one idea (pass-and-play, one-line-a-day). Not the platform (the listing
   shows it), not mechanics (keyboard, drag-and-drop, undo), not near-universal properties (offline,
   csv), not words lifted from the spec. None at all is fine.
-- **`testedWith`**: the tool and month the author last built it with, "Codex, Sep 2026", or `null`.
-  Ask; do not guess from the agent you are running in.
+- **`testedWith`**: the tool and model the author last built it with, "Claude Code, Opus 5.5", or
+  `null`. Ask; do not guess from the agent you are running in.
 
 Write it the way you would describe the app to someone across a table. Real numbers off the screen,
 the button's actual label. No design-essay register ("the constraint it is built around", "the
