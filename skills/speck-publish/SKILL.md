@@ -78,7 +78,7 @@ A tracked `.speck/` folder at the repo root:
 .speck/
   entry.json        the listing: name, blurb, description, categorySlug, platformSlug, tags, testedWith
   prompt.md         the spec someone builds from → references/prompt.md
-  prototype.html    one file, no dependencies, no network, state in memory → references/prototype.md
+  prototype.html    one file, no dependencies, no network, no off-site links, state in memory → references/prototype.md
   screenshot.png    1600x1000, from scripts/shoot.mjs
   app.json          written by scripts/publish.mjs once the draft exists and again after the uploads; what makes a re-run an update, and what says when the repo last matched Speck
 ```

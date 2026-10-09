@@ -4,6 +4,14 @@ One self-contained `.html` file. No build step, no dependencies, no network requ
 It runs by opening the file, and it runs inside a sandboxed iframe on the site, where storage APIs
 throw and network calls are blocked. Speck's house rules are the sandbox's rules, written down.
 
+**No URL in the file points off-site.** Speck refuses the upload otherwise, naming the line. Every
+link goes to `#` or to a screen inside the prototype. Nothing loads from a CDN: no `<script src>`,
+no Google Fonts `<link>`, no image or CSS `url()` from another host. Inline what the prototype
+needs (a system font stack, an SVG, a `data:` image), since the sandbox would block the request
+anyway. No `<meta http-equiv="refresh">`, and no `location = "https://…"` or `window.open(…)` to
+another site. URLs as plain text are fine: in a comment, in sample data, in the license header of
+an inlined library.
+
 ## What it is
 
 A working, clickable model of the app that a stranger can explore in ninety seconds and come away
@@ -105,6 +113,7 @@ the version you designed.
 - Interactions feel like the platform: sheets rise, rows highlight, toggles snap.
 - Real behaviour: buttons do the thing, totals recompute, screens change.
 - No device chrome.
+- No off-site URL in an `href`, `src`, CSS `url()` or navigation: links go to `#`.
 - 44 px minimum targets, visible `:focus-visible`, `prefers-reduced-motion` honoured, labels on
   icon-only controls, no horizontal scroll at 320 px.
 
